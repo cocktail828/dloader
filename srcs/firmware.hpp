@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-07 18:55:50
+ * @LastEditTime: 2021-02-08 14:30:59
  * @Description: file content
  */
 #ifndef __FIRMWARE__
@@ -11,6 +11,9 @@
 #include <iostream>
 #include <string>
 #include <fstream>
+#include <vector>
+
+#include "../third-party/tinyxml2/tinyxml2.h"
 
 struct pac_header_t
 {
@@ -74,6 +77,21 @@ enum class FILEID
     USER_XML, // user added fileid
 };
 
+static const char *FileIDs[] = {"HOST_FDL", "FDL2", "BOOTLOADER", "AP", "PS", "FMT_FSSYS",
+                                "FLASH", "NV", "PREPACK", "PhaseCheck", ""};
+struct XMLFileInfo
+{
+    std::string fileid;
+    uint32_t base;
+    uint32_t size;
+    bool flag;
+    bool checkflag;
+};
+
+struct XMLNVInfo
+{
+};
+
 class Firmware
 {
 private:
@@ -82,6 +100,14 @@ private:
     pac_header_t pachdr;
     bin_header_t *binhdr;
     std::ifstream file_opts;
+    std::vector<XMLFileInfo> xmlfilevec;
+    std::vector<XMLNVInfo> xmlnvvec;
+
+private:
+    tinyxml2::XMLNode *xmltree_find_node(tinyxml2::XMLDocument *, const std::string &);
+    tinyxml2::XMLNode *xmltree_find_node(tinyxml2::XMLNode *, const std::string &);
+    bool xmlparser_file(tinyxml2::XMLNode *);
+    bool xmlparser_nv(tinyxml2::XMLNode *);
 
 public:
     Firmware(const std::string pacf, const std::string ext_dir = "packets");
@@ -96,12 +122,17 @@ public:
 
     bool is_pac_ok();
     int fileid_to_index(FILEID id);
+    int fileidstr_to_index(const std::string &idstr);
     bool file_prepare_by_idx(int idx);
     bool file_prepare_by_id(FILEID id);
     size_t file_offset_by_idx(int idx);
     size_t file_offset_by_id(FILEID id);
     size_t file_size_by_idx(int idx);
     size_t file_size_by_id(FILEID id);
+
+    bool open(int idx);
+    uint32_t read(uint8_t *buf, uint32_t len);
+    void close();
 };
 
 #endif //__FIRMWARE__
