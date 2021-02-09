@@ -2,11 +2,13 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-08 14:38:11
+ * @LastEditTime: 2021-02-09 15:12:44
  * @Description: file content
  */
 #include <iostream>
 #include <string>
+
+#include <cstring>
 
 #include "packets.hpp"
 
@@ -15,10 +17,8 @@ const static uint8_t MAGIC_7d = 0x7d;
 const static uint8_t MAGIC_5e = 0x5e;
 const static uint8_t MAGIC_5d = 0x5d;
 #define FRAMEHDR(p) (reinterpret_cast<cmd_header *>(p))
-#define FRAMEDATA(p, t) (reinterpret_cast<t *>(p + sizeof(cmd_header)))
-#define FRAMETAIL(p, n) (reinterpret_cast<cmd_tail *>(p + (n)))
-#define CRCBEGIN(p) (p + 1)
-#define CRCLEN(p) be16toh((reinterpret_cast<cmd_header *>(p))->data_length)
+#define FRAMEDATA(p, n, t) (reinterpret_cast<t *>(p + n))
+#define FRAMETAIL(p, n) (reinterpret_cast<cmd_tail *>(p + n))
 
 Command::Command(const std::string &v) : modem_name(v)
 {
@@ -31,6 +31,38 @@ Command::~Command()
         delete[] _data;
 
     _data = nullptr;
+}
+
+std::string Command::cmdstr()
+{
+    cmd_header *hdr = FRAMEHDR(_data);
+
+    if (_reallen == 1)
+        return "BSL_CMD_CHECK_BAUD";
+
+    switch (static_cast<REQTYPE>(be16toh(hdr->cmd_type)))
+    {
+    case REQTYPE::BSL_CMD_CONNECT:
+        return "BSL_CMD_CONNECT";
+    case REQTYPE::BSL_CMD_START_DATA:
+        return "BSL_CMD_START_DATA";
+    case REQTYPE::BSL_CMD_MIDST_DATA:
+        return "BSL_CMD_MIDST_DATA";
+    case REQTYPE::BSL_CMD_END_DATA:
+        return "BSL_CMD_END_DATA";
+    case REQTYPE::BSL_CMD_EXEC_DATA:
+        return "BSL_CMD_EXEC_DATA";
+    case REQTYPE::BSL_CMD_NORMAL_RESET:
+        return "BSL_CMD_NORMAL_RESET";
+    case REQTYPE::BSL_CMD_READ_FLASH:
+        return "BSL_CMD_READ_FLASH";
+    case REQTYPE::BSL_CMD_CHANGE_BAUD:
+        return "BSL_CMD_CHANGE_BAUD";
+    case REQTYPE::BSL_CMD_ERASE_FLASH:
+        return "BSL_CMD_ERASE_FLASH";
+    default:
+        return "UNKNOW_COMMAND";
+    }
 }
 
 uint8_t *Command::data()
@@ -166,10 +198,9 @@ void Command::reinit(REQTYPE req)
 
 void Command::finishup()
 {
-    cmd_header *hdr = FRAMEHDR(_data);
-    cmd_tail *tail = FRAMETAIL(_data, sizeof(cmd_header) + be16toh(hdr->cmd_type));
+    cmd_tail *tail = FRAMETAIL(_data, _reallen);
 
-    tail->crc16 = frm_chk((uint16_t *)CRCBEGIN(_data), CRCLEN(_data));
+    tail->crc16 = htobe16(frm_chk((uint16_t *)(_data + 1), _reallen - 1 - sizeof(cmd_tail)));
     tail->magic = MAGIC_7e;
 
     _reallen += sizeof(cmd_tail);
@@ -183,19 +214,19 @@ void Command::push_back(T val)
     switch (sizeof(T))
     {
     case 1:
-        *FRAMEDATA(_data, T) = val;
+        *FRAMEDATA(_data, _reallen, T) = val;
         break;
 
     case 2:
-        *FRAMEDATA(_data, T) = htobe16(val);
+        *FRAMEDATA(_data, _reallen, T) = htobe16(val);
         break;
 
     case 4:
-        *FRAMEDATA(_data, T) = htobe32(val);
+        *FRAMEDATA(_data, _reallen, T) = htobe32(val);
         break;
 
     case 8:
-        *FRAMEDATA(_data, T) = htobe64(val);
+        *FRAMEDATA(_data, _reallen, T) = htobe64(val);
         break;
 
     default:
@@ -204,7 +235,7 @@ void Command::push_back(T val)
     }
 
     _reallen += sizeof(T);
-    hdr->data_length = htobe16(_reallen);
+    hdr->data_length = htobe16(_reallen - sizeof(cmd_header));
 }
 
 void Command::newCheckBaud()
@@ -231,40 +262,30 @@ void Command::newStartData(uint32_t addr, uint32_t len)
  * 7e -> 7d 5e
  * 7d -> 7d 5d
  */
-uint32_t copy_escape(uint8_t *src, uint32_t srclen, uint8_t *dst, uint32_t dstlen)
-{
-    int posdst = 0;
-
-    for (int possrc = 0; possrc < srclen; possrc++)
-    {
-        if (src[possrc] == MAGIC_7e)
-        {
-            dst[posdst++] = 0x7d;
-            dst[posdst++] = 0x5e;
-        }
-        else if (src[possrc] == MAGIC_7d)
-        {
-            dst[posdst++] = 0x7d;
-            dst[posdst++] = 0x5d;
-        }
-        else
-        {
-            dst[posdst++] = src[possrc];
-        }
-    }
-
-    return posdst;
-}
-
 void Command::newMidstData(uint8_t *buf, uint32_t len)
 {
     cmd_header *hdr = FRAMEHDR(_data);
 
     reinit(REQTYPE::BSL_CMD_MIDST_DATA);
+    for (int pos = 0; pos < len; pos++)
+    {
+        if (buf[pos] == MAGIC_7e)
+        {
+            _data[_reallen++] = MAGIC_7d;
+            _data[_reallen++] = MAGIC_5e;
+        }
+        else if (buf[pos] == MAGIC_7d)
+        {
+            _data[_reallen++] = MAGIC_7d;
+            _data[_reallen++] = MAGIC_5d;
+        }
+        else
+        {
+            _data[_reallen++] = buf[pos];
+        }
+    }
 
-    _reallen += copy_escape(buf, len, _data + _reallen, max_data_len - _reallen);
-    hdr->data_length = htobe16(_reallen);
-
+    hdr->data_length = htobe16(_reallen - sizeof(cmd_header));
     finishup();
 }
 
@@ -292,49 +313,79 @@ Response ::~Response()
         delete[] _data;
 }
 
+std::string Response::respstr()
+{
+    auto hdr = FRAMEHDR(_data);
+    switch (static_cast<REPTYPE>(be16toh(hdr->cmd_type)))
+    {
+    case REPTYPE::BSL_REP_ACK:
+        return "BSL_REP_ACK";
+    case REPTYPE::BSL_REP_VER:
+        return "BSL_REP_VER";
+    case REPTYPE::BSL_REP_INVALID_CMD:
+        return "BSL_REP_INVALID_CMD";
+    case REPTYPE::BSL_REP_UNKNOW_CMD:
+        return "BSL_REP_UNKNOW_CMD";
+    case REPTYPE::BSL_REP_OPERATION_FAILED:
+        return "BSL_REP_OPERATION_FAILED";
+    case REPTYPE::BSL_REP_NOT_SUPPORT_BAUDRATE:
+        return "BSL_REP_NOT_SUPPORT_BAUDRATE";
+    case REPTYPE::BSL_REP_DOWN_NOT_START:
+        return "BSL_REP_DOWN_NOT_START";
+    case REPTYPE::BSL_REP_DOWN_MUTI_START:
+        return "BSL_REP_DOWN_MUTI_START";
+    case REPTYPE::BSL_REP_DOWN_EARLY_END:
+        return "BSL_REP_DOWN_EARLY_END";
+    case REPTYPE::BSL_REP_DOWN_DEST_ERROR:
+        return "BSL_REP_DOWN_DEST_ERROR";
+    case REPTYPE::BSL_REP_DOWN_SIZE_ERROR:
+        return "BSL_REP_DOWN_SIZE_ERROR";
+    case REPTYPE::BSL_REP_VERIFY_ERROR:
+        return "BSL_REP_VERIFY_ERROR";
+    case REPTYPE::BSL_REP_NOT_VERIFY:
+        return "BSL_REP_NOT_VERIFY";
+    case REPTYPE::BSL_REP_READ_FLASH:
+        return "BSL_REP_READ_FLASH";
+    default:
+        return "UNKNOW_RESPONSE";
+    }
+}
+
 /**
  * 7d 5e -> 7e
  * 7d 5d -> 7d
  */
-uint32_t copy_unescape(uint8_t *src, uint32_t srclen, uint8_t *dst, uint32_t dstlen)
+void Response::parser(uint8_t *d, uint32_t len)
 {
-    int posdst = 0;
+    _reallen = sizeof(cmd_header);
+    memcpy(_data, d, _reallen);
 
-    for (int possrc = 0; possrc < srclen; possrc++)
+    for (int pos = _reallen; pos < len - sizeof(cmd_tail); pos++)
     {
-        if (src[possrc] == MAGIC_7d && src[possrc + 1] == MAGIC_5e)
+        if (d[pos] == MAGIC_7d && d[pos + 1] == MAGIC_5e)
         {
-            dst[posdst++] = MAGIC_7e;
-            possrc += 1;
+            _data[_reallen++] = MAGIC_7e;
+            pos++;
         }
-        else if (src[possrc] == MAGIC_7d && src[possrc] == MAGIC_5d)
+        else if (d[pos] == MAGIC_7d && d[pos] == MAGIC_5d)
         {
-            dst[posdst++] = MAGIC_7d;
-            possrc += 1;
+            _data[_reallen++] = MAGIC_7d;
+            pos++;
         }
         else
         {
-            dst[posdst++] = src[possrc];
+            _data[_reallen++] = d[pos];
         }
     }
 
-    return posdst;
+    memcpy(_data + _reallen, d + len - sizeof(cmd_tail), sizeof(cmd_tail));
+    _reallen += sizeof(cmd_tail);
 }
 
-int Response::parser(uint8_t *d, uint32_t len)
+void Response::reset()
 {
-    _reallen = sizeof(cmd_header);
-    for (int i = 0; i < _reallen; i++)
-        _data[i] = d[i];
-
-    _reallen += copy_unescape(d + _reallen, len - _reallen - sizeof(cmd_tail),
-                              _data + _reallen, max_data_len - _reallen);
-
-    for (int i = 0; i < sizeof(cmd_tail); i++)
-        _data[i] = d[i];
-    _reallen += sizeof(cmd_tail);
-
-    return 0;
+    memset(_data, 0, max_data_len);
+    _reallen = 0;
 }
 
 REPTYPE Response::cmdtype()

@@ -2,11 +2,12 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 12:21:12
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-08 17:36:30
+ * @LastEditTime: 2021-02-09 15:54:28
  * @Description: file content
  */
 #include <iostream>
 #include <fstream>
+#include <thread>
 
 extern "C"
 {
@@ -19,7 +20,7 @@ extern "C"
 
 #include "firmware.hpp"
 #include "packets.hpp"
-#include "update.hpp"
+#include "upgrade.hpp"
 #include "devices.hpp"
 #include "config.hpp"
 
@@ -42,7 +43,7 @@ void usage(const char *prog)
     cerr << prog << " [config] [options]" << endl;
     cerr << "    -f pac_file     firmware file, with suffix of '.pac'" << endl;
     cerr << "    -d device       device, can be a tty device" << endl;
-    cerr << "    -v              verbose log" << endl;
+    cerr << "    -x pac_file     exract pac_file only" << endl;
     cerr << "    -h              help message" << endl;
 }
 
@@ -65,6 +66,7 @@ string auto_find_pac(const string path)
     struct timespec modtime = {0, 0};
     while ((entptr = readdir(dirptr)))
     {
+
         struct stat _stat;
         if (entptr->d_name[0] == '.' ||
             strncasecmp(entptr->d_name + strlen(entptr->d_name) - 4, ".pac", 4))
@@ -85,12 +87,28 @@ string auto_find_pac(const string path)
     return choose_file;
 }
 
-string
-auto_find_dev(const string &port)
+string auto_find_dev(const string &port)
 {
     Device dev;
+    int try_time = 0;
+    int max_try_time = 15;
 
-    dev.scan(port);
+    for (; try_time < max_try_time; try_time++)
+    {
+        dev.reset();
+        dev.scan(port);
+
+        for (auto iter = config.devs.begin(); iter != config.devs.end(); iter++)
+        {
+            if (!dev.exist(iter->usbid, iter->usbif))
+                continue;
+            iter->use_flag = true;
+
+            return dev.get_interface(iter->usbid, iter->usbif).ttyusb;
+        }
+        cerr << "find no support device" << endl;
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
 
     return "";
 }
@@ -120,14 +138,18 @@ void load_config(const string &conf)
 
         if (key == "dev")
         {
-            int vid, pid;
+            char phy[32];
+            char idstr[32];
+            char ifstr[32];
             char chipstr[32];
-            sscanf(val.c_str(), "%x:%x,%s", &vid, &pid, chipstr);
-            config.devs.emplace_back(supp_dev{vid, pid, chipstr});
-        }
-        else if (key == "exract_dir")
-        {
-            config.ext_dir = line.substr(line.find_first_of('=') + 1);
+            sscanf(val.c_str(), "%[^:]:%[^,],%[^,],%s", phy, idstr, ifstr, chipstr);
+            config.devs.emplace_back(supp_dev{
+                false,
+                phy,
+                idstr,
+                ifstr,
+                chipstr,
+            });
         }
         else if (key == "pac_path")
         {
@@ -142,16 +164,22 @@ void load_config(const string &conf)
             config.reset_normal = atoi(line.substr(line.find_first_of('=') + 1).c_str());
         }
     }
+}
 
-    cerr << __func__ << " finish" << endl;
+int do_update(const string &name)
+{
+    Upgrade up(config.device, name, config.pac_path);
+
+    if (!up.prepare())
+        return -1;
+
+    return up.level1();
 }
 
 int main(int argc, char **argv)
 {
     int opt;
-    bool verbose = false;
     string config_path;
-    string device;
 
     if (argc > 1 && argv[1][0] != '-')
     {
@@ -167,7 +195,7 @@ int main(int argc, char **argv)
     }
     load_config(config_path.empty() ? DEFAULT_CONFIG : config_path);
 
-    while ((opt = getopt(argc, argv, "vhf:d:")) > 0)
+    while ((opt = getopt(argc, argv, "hf:d:x:")) > 0)
     {
         switch (opt)
         {
@@ -176,13 +204,27 @@ int main(int argc, char **argv)
             break;
 
         case 'd':
-            device = optarg;
+            config.device = optarg;
             break;
 
-        case 'v':
-            verbose = true;
-            break;
-
+        case 'x':
+        {
+            if (access(optarg, F_OK))
+            {
+                cerr << "cannot access pac_file " << optarg << endl;
+                return -1;
+            }
+            else
+            {
+                Firmware fm(optarg);
+                string extdir = ".";
+                if (optind < argc && argv[optind][0] != '-')
+                    extdir = argv[optind];
+                cerr << optind << " " << argc << " " << argv[optind] << endl;
+                fm.unpack_all(extdir);
+            }
+            return 0;
+        }
         case 'h':
         default:
             usage(argv[0]);
@@ -200,15 +242,36 @@ int main(int argc, char **argv)
         config.pac_path = auto_find_pac(config.pac_path);
     }
 
-    if (!device.empty() && access(device.c_str(), F_OK))
+    if (!config.device.empty() && access(config.device.c_str(), F_OK))
     {
-        cerr << "cannot access device " << device << endl;
+        cerr << "cannot access device " << config.device << endl;
+        return -1;
+    }
+    else if (config.device.empty())
+    {
+        config.device = "/dev/" + auto_find_dev(config.usb_physical_port);
+    }
+
+    cerr << "choose device: " << config.device << endl;
+
+    string mname;
+    for (auto iter = config.devs.begin(); iter != config.devs.end(); iter++)
+    {
+        if (iter->use_flag)
+        {
+            mname = iter->name;
+            break;
+        }
+    }
+
+    cerr << "chip series is: " << mname << endl;
+    if (mname.empty())
+    {
+        cerr << "find no support device" << endl;
         return -1;
     }
     else
     {
-        device = auto_find_dev(config.usb_physical_port);
+        return do_update(mname);
     }
-
-    return 0;
 }

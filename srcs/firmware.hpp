@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-08 14:30:59
+ * @LastEditTime: 2021-02-09 15:43:43
  * @Description: file content
  */
 #ifndef __FIRMWARE__
@@ -62,28 +62,38 @@ struct bin_header_t
     uint32_t dwReserved[249]; // Reserved for future,not used now
 };
 
+#undef _VALUES
+#define _VALUES           \
+    _VAL(HOST_FDL),       \
+        _VAL(FDL2),       \
+        _VAL(BOOTLOADER), \
+        _VAL(AP),         \
+        _VAL(PS),         \
+        _VAL(FMT_FSSYS),  \
+        _VAL(FLASH),      \
+        _VAL(NV),         \
+        _VAL(PREPACK),    \
+        _VAL(PHASECHECK),
+
+#define _VAL(v) v
 enum class FILEID
 {
-    HOST_FDL,
-    FDL2,
-    BOOTLOADER,
-    AP,
-    PS,
-    FMT_FSSYS,
-    FLASH,
-    NV,
-    PREPACK,
-    PHASECHECK,
-    USER_XML, // user added fileid
+    _VALUES
 };
+#undef _VAL
 
-static const char *FileIDs[] = {"HOST_FDL", "FDL2", "BOOTLOADER", "AP", "PS", "FMT_FSSYS",
-                                "FLASH", "NV", "PREPACK", "PhaseCheck", ""};
+#define _STRINGFY(v) #v
+#define STRINGFY(v) _STRINGFY(v)
+#define _VAL(v) STRINGFY(v)
+static const char *FileIDs[] = {_VALUES};
+#undef _VAL
+
 struct XMLFileInfo
 {
     std::string fileid;
     uint32_t base;
     uint32_t size;
+    uint32_t realsize;
     bool flag;
     bool checkflag;
 };
@@ -96,7 +106,6 @@ class Firmware
 {
 private:
     std::string pac_file;
-    std::string ext_dir;
     pac_header_t pachdr;
     bin_header_t *binhdr;
     std::ifstream file_opts;
@@ -106,21 +115,26 @@ private:
 private:
     tinyxml2::XMLNode *xmltree_find_node(tinyxml2::XMLDocument *, const std::string &);
     tinyxml2::XMLNode *xmltree_find_node(tinyxml2::XMLNode *, const std::string &);
-    bool xmlparser_file(tinyxml2::XMLNode *);
-    bool xmlparser_nv(tinyxml2::XMLNode *);
+    int xmlparser_file(tinyxml2::XMLNode *);
+    int xmlparser_nv(tinyxml2::XMLNode *);
 
 public:
-    Firmware(const std::string pacf, const std::string ext_dir = "packets");
+    Firmware(const std::string pacf);
     ~Firmware();
 
     std::string wcharToChar(uint16_t *pBuf, int nSize);
-    int pacparser(bool unpack_files = false);
-    int unpack(FILEID id);
-    int unpack(int idx);
+    int pacparser();
+    int unpack_by_id(FILEID id, const std::string &extdir = "packets");
+    int unpack_by_idx(int idx, const std::string &extdir = "packets");
+    int unpack_all(const std::string &extdir = "packets");
 
     int xmlparser();
+    const std::vector<XMLFileInfo> &get_file_vec() const;
+    const std::vector<XMLNVInfo> &get_nv_vec() const;
 
     bool is_pac_ok();
+    bool is_index_valid(int idx);
+    int xml_index();
     int fileid_to_index(FILEID id);
     int fileidstr_to_index(const std::string &idstr);
     bool file_prepare_by_idx(int idx);

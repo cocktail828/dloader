@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:33
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-08 14:39:56
+ * @LastEditTime: 2021-02-09 15:35:53
  * @Description: file content
  */
 #ifndef __UPDATE__
@@ -23,17 +23,20 @@ private:
     Firmware firmware;
 
 public:
-    Upgrade(const std::string &tty, const std::string &mname,
-            const std::string &pac, const std::string &ext_dir);
+    Upgrade(const std::string &tty,
+            const std::string &mname,
+            const std::string &pac);
     ~Upgrade();
+
+    bool prepare();
 
     bool talk();
     int connect();
 
     int transfer(const XMLFileInfo &info);
 
-    int upgrade_norflash();
-    int upgrade_nand_emmc();
+    int level1();
+    int level2();
 };
 
 #endif //__UPDATE__

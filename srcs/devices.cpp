@@ -12,12 +12,17 @@
 
 #include "devices.hpp"
 
-static std::string find_tty_device(const char *dirname)
+static std::string find_tty_device(const char *_dirname)
 {
     struct dirent *ent = NULL;
     DIR *pdir = NULL;
+    std::string dirname(_dirname);
 
-    pdir = opendir(dirname);
+    dirname += "/tty";
+    if (access(dirname.c_str(), F_OK))
+        dirname = _dirname;
+
+    pdir = opendir(dirname.c_str());
     if (!pdir)
         return "";
 
@@ -26,7 +31,8 @@ static std::string find_tty_device(const char *dirname)
         if (ent->d_name[0] == '.')
             continue;
 
-        if (!strncmp(ent->d_name, "ttyUSB", 6))
+        if (!strncmp(ent->d_name, "ttyUSB", 6) ||
+            !strncmp(ent->d_name, "ttyACM", 6))
         {
             closedir(pdir);
             return std::string(ent->d_name);
@@ -104,6 +110,9 @@ int Device::scan_iface(int vid, int pid, std::string usbport, std::string rootdi
         file = std::string(path) + "/bInterfaceNumber";
         iface.ifno = file_get_xint(file);
 
+        file = std::string(path) + "/modalias";
+        iface.modalias = file_get_line(file);
+
         iface.ttyusb = find_tty_device(path.c_str());
 
         if (iface.cls == -1 || iface.subcls == -1 || iface.proto == -1 || iface.ifno == -1)
@@ -166,11 +175,27 @@ int Device::scan(const std::string &usbport)
                       << ", Class=" << iter1->cls
                       << ", SubClass=" << iter1->subcls
                       << ", Proto=" << iter1->proto
-                      << ", TTY=" << iter1->ttyusb << std::endl;
+                      << ", TTY=" << iter1->ttyusb
+                      << ", MODALIAS=" << iter1->modalias
+                      << std::endl;
         }
     }
 
     return 0;
+}
+
+bool Device::exist(const std::string &idstr, const std::string &ifstr)
+{
+    for (auto iter = m_usbdevs.begin(); iter != m_usbdevs.end(); iter++)
+    {
+        for (auto iter1 = iter->ifaces.begin(); iter1 != iter->ifaces.end(); iter1++)
+        {
+            if (iter1->modalias.find(idstr) != std::string::npos &&
+                iter1->modalias.find(ifstr) != std::string::npos)
+                return true;
+        }
+    }
+    return false;
 }
 
 bool Device::exist(int vid, int pid, int cls, int scls, int proto)
@@ -199,6 +224,20 @@ interface Device::get_interface(int vid, int pid, int cls, int scls, int proto)
         for (auto iter1 = iter->ifaces.begin(); iter1 != iter->ifaces.end(); iter1++)
         {
             if (iter1->cls == cls && iter1->subcls == scls && iter1->proto == proto)
+                return *iter1;
+        }
+    }
+    return interface();
+}
+
+interface Device::get_interface(const std::string &idstr, const std::string &ifstr)
+{
+    for (auto iter = m_usbdevs.begin(); iter != m_usbdevs.end(); iter++)
+    {
+        for (auto iter1 = iter->ifaces.begin(); iter1 != iter->ifaces.end(); iter1++)
+        {
+            if (iter1->modalias.find(idstr) != std::string::npos &&
+                iter1->modalias.find(ifstr) != std::string::npos)
                 return *iter1;
         }
     }

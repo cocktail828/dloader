@@ -2,13 +2,14 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-08 14:39:21
+ * @LastEditTime: 2021-02-09 15:44:05
  * @Description: file content
  */
 #include <iostream>
 #include <string>
 #include <fstream>
 #include <functional>
+#include <algorithm>
 
 #include <cstring>
 
@@ -26,8 +27,8 @@ using namespace tinyxml2;
 #include "scopeguard.hpp"
 #include "firmware.hpp"
 
-Firmware::Firmware(const std::string pacf, const std::string extdir)
-    : pac_file(pacf), ext_dir(extdir), binhdr(nullptr)
+Firmware::Firmware(const std::string pacf)
+    : pac_file(pacf), binhdr(nullptr)
 {
 }
 
@@ -53,7 +54,7 @@ std::string Firmware::wcharToChar(uint16_t *pBuf, int nSize)
     return std::string(buf);
 }
 
-int Firmware::pacparser(bool unpack_files)
+int Firmware::pacparser()
 {
     std::ifstream fin(pac_file, std::ios::binary);
 
@@ -69,7 +70,7 @@ int Firmware::pacparser(bool unpack_files)
     fin.seekg(0, std::ios::beg);
 
     fin.read(reinterpret_cast<char *>(&pachdr), sizeof(pachdr));
-    std::cerr << "FileCount: " << pachdr.nFileCount << std::endl;
+    std::cerr << std::dec << "FileCount: " << pachdr.nFileCount << std::endl;
     std::cerr << "ProductName: " << WCHARSTR(pachdr.szPrdName) << std::endl;
     std::cerr << "ProductVersion: " << WCHARSTR(pachdr.szPrdVersion) << std::endl;
     std::cerr << "ProductAlias: " << WCHARSTR(pachdr.szPrdAlias) << std::endl;
@@ -83,18 +84,13 @@ int Firmware::pacparser(bool unpack_files)
         uint64_t filesz = binhdr[i].dwLoFileSize;
         std::cerr << "idx: " << i << " FileName: " << WCHARSTR(binhdr[i].szFileName)
                   << ", FileID: " << WCHARSTR(binhdr[i].szFileID)
-                  << ", Size: " << filesz << std::endl;
+                  << std::dec << ", Size: " << filesz << std::endl;
     }
 
-    if (unpack_files)
-    {
-        for (int i = 0; i < pachdr.nFileCount; i++)
-            unpack(i);
-    }
     return 0;
 }
 
-int Firmware::unpack(int idx)
+int Firmware::unpack_by_idx(int idx, const std::string &extdir)
 {
     std::ofstream fout;
     char buff[4 * 1024];
@@ -106,19 +102,17 @@ int Firmware::unpack(int idx)
         std::cerr << "fail to open " << pac_file << std::endl;
         return -1;
     }
-    ON_SCOPE_EXIT
-    {
-        fout.close();
-    };
 
-    if (access(ext_dir.c_str(), F_OK))
+    ON_SCOPE_EXIT { fout.close(); };
+
+    if (access(extdir.c_str(), F_OK))
     {
-        umask(0);
-        mkdir(ext_dir.c_str(), 0777);
+        std::cerr << "cannot access dir " << extdir << std::endl;
+        return -1;
     }
 
     filesz = file_size_by_idx(idx);
-    fpath = ext_dir + "/" + WCHARSTR(binhdr[idx].szFileName);
+    fpath = extdir + "/" + WCHARSTR(binhdr[idx].szFileName);
     if (WCHARSTR(binhdr[idx].szFileName).empty())
         return -1;
 
@@ -144,16 +138,28 @@ int Firmware::unpack(int idx)
     return 0;
 }
 
-int Firmware::unpack(FILEID id)
+int Firmware::unpack_by_id(FILEID id, const std::string &extdir)
 {
     int idx = fileid_to_index(id);
     if (idx < 0 || idx > pachdr.nFileCount)
     {
-        std::cerr << "error " << __func__ << std::endl;
+        std::cerr << "error " << __PRETTY_FUNCTION__ << std::endl;
         return -1;
     }
 
-    return unpack(idx);
+    return unpack_by_idx(idx);
+}
+
+int Firmware::unpack_all(const std::string &extdir)
+{
+    if (!pacparser())
+    {
+        for (int i = 0; i < pachdr.nFileCount; i++)
+            unpack_by_idx(i, extdir);
+        return 0;
+    }
+
+    return -1;
 }
 
 XMLNode *Firmware::xmltree_find_node(XMLNode *root, const std::string &nm)
@@ -202,13 +208,13 @@ XMLNode *Firmware::xmltree_find_node(XMLDocument *doc, const std::string &nm)
 //         <CheckFlag> 1 < / CheckFlag >
 //         <Description> HOST_FDL</ Description>
 //    </ File>
-bool Firmware::xmlparser_file(XMLNode *node)
+int Firmware::xmlparser_file(XMLNode *node)
 {
     auto filenode = node->FirstChild();
     if (std::string(filenode->Value()) != "File")
     {
-        std::cerr << "error " << __func__ << std::endl;
-        return false;
+        std::cerr << __func__ << " error" << std::endl;
+        return -1;
     }
 
     std::cerr << __func__ << " try to farser file info" << std::endl;
@@ -237,6 +243,7 @@ bool Firmware::xmlparser_file(XMLNode *node)
         if (n)
             info.checkflag = CONSTCHARTOINT(n->FirstChild()->Value());
 
+        info.realsize = file_size_by_idx(fileidstr_to_index(info.fileid));
         xmlfilevec.push_back(info);
         std::cerr << "FILEID: " << info.fileid
                   << ", Base: 0x" << std::hex << info.base
@@ -245,8 +252,9 @@ bool Firmware::xmlparser_file(XMLNode *node)
                   << ", CheckFlag: " << info.checkflag
                   << std::dec << std::endl;
     }
+    std::cerr << __func__ << " farser file info end" << std::endl;
 
-    return true;
+    return 0;
 }
 
 //<Product name = "UIX8910_MODEM">
@@ -279,18 +287,18 @@ bool Firmware::xmlparser_file(XMLNode *node)
 //    </ Chips>
 //</ Product>
 
-bool Firmware::xmlparser_nv(XMLNode *)
+int Firmware::xmlparser_nv(XMLNode *)
 {
-    std::cerr << "current not implemented error " << __func__ << std::endl;
+    std::cerr << "current not implemented error " << __PRETTY_FUNCTION__ << std::endl;
     return true;
 }
 
 int Firmware::xmlparser()
 {
-    int idx = fileid_to_index(FILEID::USER_XML);
-    if (idx < 0 || idx > pachdr.nFileCount)
+    int idx = xml_index();
+    if (!is_index_valid(idx))
     {
-        std::cerr << "fileid_to_index error " << __func__ << std::endl;
+        std::cerr << __PRETTY_FUNCTION__ << " fileid_to_index error" << std::endl;
         return -1;
     }
     else
@@ -298,7 +306,7 @@ int Firmware::xmlparser()
         char *xmlbuf = nullptr;
         XMLDocument doc;
         XMLError xmlerr;
-        size_t filesz = file_size_by_id(FILEID::USER_XML);
+        size_t filesz = file_size_by_idx(idx);
 
         ON_SCOPE_EXIT
         {
@@ -310,7 +318,7 @@ int Firmware::xmlparser()
         xmlbuf = new char[filesz];
         memset(xmlbuf, 0, filesz);
 
-        file_prepare_by_id(FILEID::USER_XML);
+        file_prepare_by_idx(idx);
         file_opts.read(xmlbuf, filesz);
         xmlerr = doc.Parse(xmlbuf);
         if (xmlerr != XML_SUCCESS)
@@ -323,15 +331,49 @@ int Firmware::xmlparser()
 
         XMLNode *scheme = xmltree_find_node(&doc, "Scheme");
         if (scheme)
-            xmlparser_file(scheme);
+            return xmlparser_file(scheme);
+        return -1;
     }
 
-    return 0;
+    return -1;
+}
+
+const std::vector<XMLFileInfo> &Firmware::get_file_vec() const
+{
+    return xmlfilevec;
+}
+
+const std::vector<XMLNVInfo> &Firmware::get_nv_vec() const
+{
+    return xmlnvvec;
 }
 
 bool Firmware::is_pac_ok()
 {
-    return true;
+    return (binhdr);
+}
+
+bool Firmware::is_index_valid(int idx)
+{
+    return !(idx < 0 || idx > pachdr.nFileCount);
+}
+
+int Firmware::xml_index()
+{
+    if (!is_pac_ok())
+        return -1;
+
+    for (int i = 0; i < pachdr.nFileCount; i++)
+    {
+        if (WCHARSTR(binhdr[i].szFileName).find(".xml") != std::string::npos)
+        {
+            std::cerr << "find xml at " << i << std::endl;
+            return i;
+        }
+    }
+
+    std::cerr << "find no file with suffix .xml" << std::endl;
+    return -1;
 }
 
 int Firmware::fileid_to_index(FILEID id)
@@ -343,11 +385,9 @@ int Firmware::fileid_to_index(FILEID id)
 
     for (int i = 0; i < pachdr.nFileCount; i++)
     {
-        if (id == FILEID::USER_XML &&
-            WCHARSTR(binhdr[i].szFileName).find(".xml") != std::string::npos)
-            return i;
-
-        if (!fileidstr.empty() && WCHARSTR(binhdr[i].szFileID).find(fileidstr) != std::string::npos)
+        std::string str(WCHARSTR(binhdr[i].szFileID));
+        std::transform(str.begin(), str.end(), str.begin(), toupper);
+        if (!str.empty() && str == fileidstr)
             return i;
     }
 
@@ -357,9 +397,11 @@ int Firmware::fileid_to_index(FILEID id)
 
 int Firmware::fileidstr_to_index(const std::string &idstr)
 {
+    std::string str;
+    std::transform(idstr.begin(), idstr.end(), str.begin(), toupper);
     for (int idx = 0; idx < sizeof(FileIDs) / sizeof(FileIDs[0]); idx++)
     {
-        if (idstr == FileIDs[idx])
+        if (str == FileIDs[idx])
             return idx;
     }
 
@@ -384,9 +426,9 @@ bool Firmware::file_prepare_by_idx(int idx)
 bool Firmware::file_prepare_by_id(FILEID id)
 {
     int idx = fileid_to_index(id);
-    if (idx < 0 || idx > pachdr.nFileCount)
+    if (!is_index_valid(idx))
     {
-        std::cerr << "fileid_to_index error " << __func__ << std::endl;
+        std::cerr << "fileid_to_index error " << __PRETTY_FUNCTION__ << std::endl;
         return -1;
     }
 
@@ -409,9 +451,9 @@ size_t Firmware::file_offset_by_idx(int idx)
 size_t Firmware::file_offset_by_id(FILEID id)
 {
     int idx = fileid_to_index(id);
-    if (idx < 0 || idx > pachdr.nFileCount)
+    if (!is_index_valid(idx))
     {
-        std::cerr << "fileid_to_index error " << __func__ << std::endl;
+        std::cerr << "fileid_to_index error " << __PRETTY_FUNCTION__ << std::endl;
         return -1;
     }
 
@@ -428,7 +470,7 @@ size_t Firmware::file_size_by_id(FILEID id)
     int idx = fileid_to_index(id);
     if (idx < 0 || idx > pachdr.nFileCount)
     {
-        std::cerr << "fileid_to_index error " << __func__ << std::endl;
+        std::cerr << "fileid_to_index error " << __PRETTY_FUNCTION__ << std::endl;
         return -1;
     }
 
@@ -437,9 +479,9 @@ size_t Firmware::file_size_by_id(FILEID id)
 
 bool Firmware::open(int idx)
 {
-    if (idx < 0 || idx > pachdr.nFileCount)
+    if (!is_index_valid(idx))
     {
-        std::cerr << "fileid_to_index error " << __func__ << std::endl;
+        std::cerr << "fileid_to_index error " << __PRETTY_FUNCTION__ << std::endl;
         return false;
     }
 

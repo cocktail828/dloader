@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:19
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-08 11:47:30
+ * @LastEditTime: 2021-02-09 14:03:39
  * @Description: file content
  */
 #ifndef __SERIAL__
@@ -13,24 +13,34 @@
 
 #include <termios.h>
 
-enum BAUD
+#undef _VALUES
+#define _VALUES         \
+    _VAL(B57600),       \
+        _VAL(B115200),  \
+        _VAL(B230400),  \
+        _VAL(B460800),  \
+        _VAL(B500000),  \
+        _VAL(B576000),  \
+        _VAL(B921600),  \
+        _VAL(B1000000), \
+        _VAL(B1152000), \
+        _VAL(B1500000), \
+        _VAL(B2000000), \
+        _VAL(B2500000), \
+        _VAL(B3000000), \
+        _VAL(B3500000), \
+        _VAL(B4000000),
+
+#define _VAL(v) BAUD_##v
+enum class BAUD
 {
-    BAUD57600 = 0010001,
-    BAUD115200 = 0010002,
-    BAUD230400 = 0010003,
-    BAUD460800 = 0010004,
-    BAUD500000 = 0010005,
-    BAUD576000 = 0010006,
-    BAUD921600 = 0010007,
-    BAUD1000000 = 0010010,
-    BAUD1152000 = 0010011,
-    BAUD1500000 = 0010012,
-    BAUD2000000 = 0010013,
-    BAUD2500000 = 0010014,
-    BAUD3000000 = 0010015,
-    BAUD3500000 = 0010016,
-    BAUD4000000 = 0010017,
+    _VALUES
 };
+#undef _VAL
+
+#define _VAL(v) v
+static int BaudARR[] = {_VALUES};
+#undef _VAL
 
 class SerialPort
 {
@@ -40,24 +50,20 @@ private:
     int ttyfd;
     int epfd;
     uint8_t *buffer;
-    uint8_t bufsize;
+    uint32_t bufsize;
 
 public:
     SerialPort(const std::string &tty);
     ~SerialPort();
 
     bool isOpened();
-
-    bool isDeviceReady();
-
-    uint8_t *data();
-
-    uint16_t datalen();
-
     void setBaud(BAUD baud);
 
-    ssize_t sendSync(uint8_t *data, uint16_t len);
-    ssize_t recvSync(uint32_t timeout);
+    uint8_t *data();
+    uint16_t datalen();
+
+    bool sendSync(uint8_t *data, uint16_t len);
+    bool recvSync(uint32_t timeout);
 };
 
 #endif // __SERIAL__
