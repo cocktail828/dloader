@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:36:51
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-10 09:05:08
+ * @LastEditTime: 2021-02-10 15:10:13
  * @Description: file content
  */
 
@@ -10,18 +10,17 @@
 
 #include "packets.hpp"
 #include "serial.hpp"
-#include "upgrade.hpp"
+#include "upgrade_manager.hpp"
 
-Upgrade::Upgrade(const std::string &tty,
-                 const std::string &mname,
-                 const std::string &pac)
-    : serial(tty), cmd(mname), firmware(pac) {}
+UpgradeManager::UpgradeManager(const std::string &tty,
+                               const std::string &pac)
+    : serial(tty), firmware(pac) {}
 
-Upgrade::~Upgrade()
+UpgradeManager::~UpgradeManager()
 {
 }
 
-bool Upgrade::prepare()
+bool UpgradeManager::prepare()
 {
     if (firmware.pacparser())
         return false;
@@ -46,10 +45,10 @@ static void hexdump(const std::string &s, uint8_t *buf, uint32_t sz)
     std::cerr << _buff << std::endl;
 }
 
-bool Upgrade::talk()
+bool UpgradeManager::talk()
 {
-    hexdump(cmd.cmdstr() + " ---> ", cmd.data(), cmd.datalen());
-    if (!serial.sendSync(cmd.data(), cmd.datalen()))
+    hexdump(req.typestr() + " ---> ", req.data(), req.datalen());
+    if (!serial.sendSync(req.data(), req.datalen()))
     {
         std::cerr << "sendSync failed" << std::endl;
         return false;
@@ -63,86 +62,87 @@ bool Upgrade::talk()
     }
 
     resp.parser(serial.data(), serial.datalen());
-    hexdump(resp.respstr() + " <--- ", resp.data(), resp.datalen());
+    hexdump(resp.typestr() + " <--- ", resp.data(), resp.datalen());
 
     return true;
 }
 
-int Upgrade::connect()
+int UpgradeManager::connect()
 {
-    cmd.newCheckBaud();
-    serial.setBaud(BAUD::BAUD_B115200);
+    req.newCheckBaud();
+    serial.setBaud(BAUD::BAUD115200);
     if (!talk())
     {
         std::cerr << __func__ << " talk failed with baud 115200" << std::endl;
         return -1;
     }
 
-    if (resp.cmdtype() != REPTYPE::BSL_REP_VER)
+    if (resp.type() != REPTYPE::BSL_REP_VER)
         return -1;
 
-    cmd.newConnect();
+    req.newConnect();
     if (!talk())
     {
         std::cerr << __func__ << " talk failed" << std::endl;
         return -1;
     }
 
-    if (resp.cmdtype() != REPTYPE::BSL_REP_ACK)
+    if (resp.type() != REPTYPE::BSL_REP_ACK)
         return -1;
 
     return 0;
 }
 
-int Upgrade::transfer(const XMLFileInfo &info)
+int UpgradeManager::transfer(const XMLFileInfo &info)
 {
-    int idx = firmware.fileidstr_to_index(info.fileid);
-    uint32_t filesz = firmware.file_size_by_idx(idx);
+    uint32_t filesz = firmware.file_size(info.fileid);
+    size_t offset = 0;
 
-    cmd.newStartData(info.base, info.realsize);
+    req.newStartData(info.base, info.realsize);
     if (!talk())
     {
         std::cerr << __func__ << " newStartData talk failed" << std::endl;
         return -1;
     }
 
-    if (resp.cmdtype() != REPTYPE::BSL_REP_ACK)
+    if (resp.type() != REPTYPE::BSL_REP_ACK)
         return -1;
 
-    firmware.open(idx);
     do
     {
         uint8_t buffer[2 * 1024];
         uint32_t sz = (filesz > sizeof(buffer)) ? sizeof(buffer) : filesz;
 
-        firmware.read(buffer, sz);
-        cmd.newMidstData(buffer, sz);
+        firmware.get_data(info.fileid, offset, buffer, sz);
+        req.newMidstData(buffer, sz);
         if (!talk())
         {
             std::cerr << __func__ << " newMidstData talk failed" << std::endl;
             return -1;
         }
 
-        if (resp.cmdtype() != REPTYPE::BSL_REP_ACK)
+        if (resp.type() != REPTYPE::BSL_REP_ACK)
             return -1;
-    } while (1);
-    firmware.close();
 
-    cmd.newEndData();
+        filesz -= sz;
+        offset += sz;
+    } while (1);
+
+    req.newEndData();
     if (!talk())
     {
         std::cerr << __func__ << " newEndData talk failed" << std::endl;
         return -1;
     }
 
-    if (resp.cmdtype() != REPTYPE::BSL_REP_ACK)
+    if (resp.type() != REPTYPE::BSL_REP_ACK)
         return -1;
 
     std::cerr << __func__ << " finished" << std::endl;
     return 0;
 }
 
-int Upgrade::level1()
+int UpgradeManager::upgrade(const std::string &mname)
 {
     auto vec = firmware.get_file_vec();
     if (vec.empty())

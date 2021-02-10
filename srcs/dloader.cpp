@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 12:21:12
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-10 10:34:35
+ * @LastEditTime: 2021-02-10 15:10:30
  * @Description: file content
  */
 #include <iostream>
@@ -19,8 +19,7 @@ extern "C"
 }
 
 #include "firmware.hpp"
-#include "packets.hpp"
-#include "upgrade.hpp"
+#include "upgrade_manager.hpp"
 #include "devices.hpp"
 #include "config.hpp"
 #include "common.hpp"
@@ -81,17 +80,17 @@ string auto_find_pac(const string path)
         {
             choose_file = fpath;
             modtime = _stat.st_mtim;
+            break;
         }
     }
+    closedir(dirptr);
 
-    cerr << "choose pac: " << choose_file << endl;
     return choose_file;
 }
 
-string auto_find_dev(const string &port)
+void auto_find_dev(const string &port)
 {
     Device dev;
-    string ttydev;
     int try_time = 0;
     int max_try_time = 15;
 
@@ -102,18 +101,18 @@ string auto_find_dev(const string &port)
 
         for (auto iter = config.devs.begin(); iter != config.devs.end(); iter++)
         {
+            auto d = dev.get_interface(iter->usbid, iter->usbif).ttyusb;
             if (!dev.exist(iter->usbid, iter->usbif))
                 continue;
             iter->use_flag = true;
 
-            ttydev = dev.get_interface(iter->usbid, iter->usbif).ttyusb;
+            config.device = d.empty() ? "" : ("/dev/" + d);
+            config.mname = iter->name;
+            return;
         }
         cerr << "find no support device" << endl;
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
-    cerr << "choose device: " << config.device << endl;
-
-    return "";
 }
 
 #define DEFAULT_CONFIG "/etc/dloader.conf"
@@ -171,12 +170,12 @@ void load_config(const string &conf)
 
 int do_update(const string &name)
 {
-    Upgrade up(config.device, name, config.pac_path);
+    UpgradeManager upmgr(config.device, config.pac_path);
 
-    if (!up.prepare())
+    if (!upmgr.prepare())
         return -1;
 
-    return up.level1();
+    return upmgr.upgrade(name);
 }
 
 int main(int argc, char **argv)
@@ -193,16 +192,12 @@ int main(int argc, char **argv)
 
     load_config(config_path.empty() ? DEFAULT_CONFIG : config_path);
 
-    while ((opt = getopt(argc, argv, "hf:d:x:")) > 0)
+    while ((opt = getopt(argc, argv, "hf:x:")) > 0)
     {
         switch (opt)
         {
         case 'f':
             config.pac_path = optarg;
-            break;
-
-        case 'd':
-            config.device = optarg;
             break;
 
         case 'x':
@@ -213,7 +208,6 @@ int main(int argc, char **argv)
                 string extdir = ".";
                 if (optind < argc && argv[optind][0] != '-')
                     extdir = argv[optind];
-                cerr << optind << " " << argc << " " << argv[optind] << endl;
                 fm.unpack_all(extdir);
             }
             return 0;
@@ -226,31 +220,18 @@ int main(int argc, char **argv)
     }
 
     if (!config.pac_path.empty() && is_dir(config.pac_path))
-        config.pac_path = auto_find_pac(config.pac_path);
+        auto_find_pac(config.pac_path);
 
-    if (config.device.empty())
-        config.device = "/dev/" + auto_find_dev(config.usb_physical_port);
+    auto_find_dev(config.usb_physical_port);
 
     cerr << "choose device: " << config.device << endl;
+    cerr << "choose pac: " << config.pac_path << endl;
+    cerr << "chip series is: " << config.mname << endl;
+    if (!config.mname.empty() &&
+        !config.device.empty() && !access(config.device.c_str(), F_OK) &&
+        !config.pac_path.empty() && !access(config.device.c_str(), F_OK))
+        return do_update(config.mname);
 
-    string mname;
-    for (auto iter = config.devs.begin(); iter != config.devs.end(); iter++)
-    {
-        if (iter->use_flag)
-        {
-            mname = iter->name;
-            break;
-        }
-    }
-
-    cerr << "chip series is: " << mname << endl;
-    if (mname.empty())
-    {
-        cerr << "find no support device" << endl;
-        return -1;
-    }
-    else
-    {
-        return do_update(mname);
-    }
+    cerr << "find no support device" << endl;
+    return -1;
 }

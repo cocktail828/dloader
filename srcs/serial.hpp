@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:19
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-09 14:03:39
+ * @LastEditTime: 2021-02-10 14:41:48
  * @Description: file content
  */
 #ifndef __SERIAL__
@@ -14,24 +14,24 @@
 #include <termios.h>
 
 #undef _VALUES
-#define _VALUES         \
-    _VAL(B57600),       \
-        _VAL(B115200),  \
-        _VAL(B230400),  \
-        _VAL(B460800),  \
-        _VAL(B500000),  \
-        _VAL(B576000),  \
-        _VAL(B921600),  \
-        _VAL(B1000000), \
-        _VAL(B1152000), \
-        _VAL(B1500000), \
-        _VAL(B2000000), \
-        _VAL(B2500000), \
-        _VAL(B3000000), \
-        _VAL(B3500000), \
-        _VAL(B4000000),
+#define _VALUES        \
+    _VAL(57600),       \
+        _VAL(115200),  \
+        _VAL(230400),  \
+        _VAL(460800),  \
+        _VAL(500000),  \
+        _VAL(576000),  \
+        _VAL(921600),  \
+        _VAL(1000000), \
+        _VAL(1152000), \
+        _VAL(1500000), \
+        _VAL(2000000), \
+        _VAL(2500000), \
+        _VAL(3000000), \
+        _VAL(3500000), \
+        _VAL(4000000),
 
-#define _VAL(v) BAUD_##v
+#define _VAL(v) BAUD##v
 enum class BAUD
 {
     _VALUES
@@ -59,11 +59,11 @@ public:
     bool isOpened();
     void setBaud(BAUD baud);
 
-    uint8_t *data();
-    uint16_t datalen();
-
     bool sendSync(uint8_t *data, uint16_t len);
     bool recvSync(uint32_t timeout);
+
+    uint8_t *data();
+    uint16_t datalen();
 };
 
 #endif // __SERIAL__

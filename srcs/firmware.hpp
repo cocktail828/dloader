@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-09 15:43:43
+ * @LastEditTime: 2021-02-10 14:20:08
  * @Description: file content
  */
 #ifndef __FIRMWARE__
@@ -62,32 +62,6 @@ struct bin_header_t
     uint32_t dwReserved[249]; // Reserved for future,not used now
 };
 
-#undef _VALUES
-#define _VALUES           \
-    _VAL(HOST_FDL),       \
-        _VAL(FDL2),       \
-        _VAL(BOOTLOADER), \
-        _VAL(AP),         \
-        _VAL(PS),         \
-        _VAL(FMT_FSSYS),  \
-        _VAL(FLASH),      \
-        _VAL(NV),         \
-        _VAL(PREPACK),    \
-        _VAL(PHASECHECK),
-
-#define _VAL(v) v
-enum class FILEID
-{
-    _VALUES
-};
-#undef _VAL
-
-#define _STRINGFY(v) #v
-#define STRINGFY(v) _STRINGFY(v)
-#define _VAL(v) STRINGFY(v)
-static const char *FileIDs[] = {_VALUES};
-#undef _VAL
-
 struct XMLFileInfo
 {
     std::string fileid;
@@ -106,9 +80,8 @@ class Firmware
 {
 private:
     std::string pac_file;
-    pac_header_t pachdr;
+    pac_header_t *pachdr;
     bin_header_t *binhdr;
-    std::ifstream file_opts;
     std::vector<XMLFileInfo> xmlfilevec;
     std::vector<XMLNVInfo> xmlnvvec;
 
@@ -117,36 +90,36 @@ private:
     tinyxml2::XMLNode *xmltree_find_node(tinyxml2::XMLNode *, const std::string &);
     int xmlparser_file(tinyxml2::XMLNode *);
     int xmlparser_nv(tinyxml2::XMLNode *);
+    bool is_index_valid(int idx);
 
 public:
     Firmware(const std::string pacf);
     ~Firmware();
 
     std::string wcharToChar(uint16_t *pBuf, int nSize);
+
+    // should parser pac fisrt before all operations
     int pacparser();
-    int unpack_by_id(FILEID id, const std::string &extdir = "packets");
-    int unpack_by_idx(int idx, const std::string &extdir = "packets");
+
+    // file counts including file that has size of 0
+    uint32_t pac_file_count();
+
+    int unpack(int idx, const std::string &extdir = "packets");
+    int unpack(const std::string &idstr, const std::string &extdir = "packets");
     int unpack_all(const std::string &extdir = "packets");
+
+    // xml has a empty fileid, that is ""
+    int fileid_to_index(const std::string &idstr);
+    size_t file_size(int idx);
+    size_t file_size(const std::string &idstr);
+    size_t file_offset(int idx);
+    size_t file_offset(const std::string &idstr);
 
     int xmlparser();
     const std::vector<XMLFileInfo> &get_file_vec() const;
     const std::vector<XMLNVInfo> &get_nv_vec() const;
 
-    bool is_pac_ok();
-    bool is_index_valid(int idx);
-    int xml_index();
-    int fileid_to_index(FILEID id);
-    int fileidstr_to_index(const std::string &idstr);
-    bool file_prepare_by_idx(int idx);
-    bool file_prepare_by_id(FILEID id);
-    size_t file_offset_by_idx(int idx);
-    size_t file_offset_by_id(FILEID id);
-    size_t file_size_by_idx(int idx);
-    size_t file_size_by_id(FILEID id);
-
-    bool open(int idx);
-    uint32_t read(uint8_t *buf, uint32_t len);
-    void close();
+    bool get_data(const std::string &idstr, size_t offset, uint8_t *buf, uint32_t sz);
 };
 
 #endif //__FIRMWARE__

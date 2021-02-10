@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-10 09:04:20
+ * @LastEditTime: 2021-02-10 15:09:26
  * @Description: file content
  */
 #ifndef __PACKETS__
@@ -66,7 +66,6 @@ private:
     const int max_data_len = 2 * 1024;
     uint8_t *_data;
     uint16_t _reallen;
-    std::string modem_name;
 
 private:
     void reinit(REQTYPE);
@@ -76,11 +75,11 @@ private:
     void push_back(T);
 
 public:
-    Request(const std::string &v);
-
+    Request();
     ~Request();
 
-    std::string cmdstr();
+    REQTYPE type();
+    std::string typestr();
 
     uint8_t *data();
     uint32_t datalen();
@@ -118,12 +117,11 @@ public:
     Response();
     ~Response();
 
-    std::string respstr();
-    
-    void parser(uint8_t *d, uint32_t len);
-    void reset();
+    REPTYPE type();
+    std::string typestr();
 
-    REPTYPE cmdtype();
+    void reset();
+    void parser(uint8_t *d, uint32_t len);
 
     uint8_t *data();
     uint32_t datalen();

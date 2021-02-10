@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-10 08:45:57
+ * @LastEditTime: 2021-02-10 15:09:17
  * @Description: file content
  */
 #include <iostream>
@@ -20,7 +20,7 @@ const static uint8_t MAGIC_5d = 0x5d;
 #define FRAMEDATA(p, n, t) (reinterpret_cast<t *>(p + n))
 #define FRAMETAIL(p, n) (reinterpret_cast<cmd_tail *>(p + n))
 
-Request::Request(const std::string &v) : modem_name(v)
+Request::Request()
 {
     _data = new uint8_t[max_data_len];
 }
@@ -33,7 +33,13 @@ Request::~Request()
     _data = nullptr;
 }
 
-std::string Request::cmdstr()
+REQTYPE Request::type()
+{
+    cmd_header *hdr = FRAMEHDR(_data);
+    return static_cast<REQTYPE>(be16toh(hdr->cmd_type));
+}
+
+std::string Request::typestr()
 {
     cmd_header *hdr = FRAMEHDR(_data);
 
@@ -313,7 +319,13 @@ Response ::~Response()
         delete[] _data;
 }
 
-std::string Response::respstr()
+REPTYPE Response::type()
+{
+    auto hdr = FRAMEHDR(_data);
+    return static_cast<REPTYPE>(be16toh(hdr->cmd_type));
+}
+
+std::string Response::typestr()
 {
     auto hdr = FRAMEHDR(_data);
     switch (static_cast<REPTYPE>(be16toh(hdr->cmd_type)))
@@ -386,13 +398,6 @@ void Response::reset()
 {
     memset(_data, 0, max_data_len);
     _reallen = 0;
-}
-
-REPTYPE Response::cmdtype()
-{
-    auto hdr = FRAMEHDR(_data);
-
-    return static_cast<REPTYPE>(be16toh(hdr->cmd_type));
 }
 
 uint8_t *Response::data()

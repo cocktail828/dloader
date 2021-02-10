@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:41:38
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-09 14:09:55
+ * @LastEditTime: 2021-02-10 14:42:16
  * @Description: file content
  */
 
@@ -67,16 +67,12 @@ bool SerialPort::isOpened()
     return (access(ttydev.c_str(), F_OK) == 0) && (ttyfd > 0);
 }
 
-uint8_t *SerialPort::data() { return buffer; }
-
-uint16_t SerialPort::datalen() { return bufsize; }
-
 void SerialPort::setBaud(BAUD baud)
 {
     struct termios tio;
     struct termios settings;
 
-    std::cerr << "serial set baud " << BaudARR[static_cast<int>(baud)] << std::endl;
+    std::cerr << "serial set baud " << std::dec << BaudARR[static_cast<int>(baud)] << std::endl;
     memset(&tio, 0, sizeof(tio));
     tio.c_iflag = 0;
     tio.c_oflag = 0;
@@ -151,4 +147,14 @@ bool SerialPort::recvSync(uint32_t timeout)
         std::cerr << "epoll fail for " << strerror(errno) << std::endl;
         return false;
     }
+}
+
+uint8_t *SerialPort::data()
+{
+    return buffer;
+}
+
+uint16_t SerialPort::datalen()
+{
+    return bufsize;
 }

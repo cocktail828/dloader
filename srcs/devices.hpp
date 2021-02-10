@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 14:55:50
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-09 13:20:54
+ * @LastEditTime: 2021-02-10 14:43:29
  * @Description: file content
  */
 #ifndef __DEVICE__
@@ -44,12 +44,6 @@ private:
 public:
     Device() { reset(); }
     ~Device() {}
-
-    // friend bool filter_by_usbport(Device *pdev, const char *path);
-    // friend bool filter_by_vid_pid(Device *pdev, const char *path);
-    // friend bool filter_by_ifno(Device *pdev, const char *path);
-    // friend bool filter_by_ids(Device *pdev, const char *path);
-    // friend bool filter_none(Device *pdev, const char *path);
 
     void reset();
     int scan(const std::string &usbport);
