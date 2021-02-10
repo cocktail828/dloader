@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:33
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-09 15:35:53
+ * @LastEditTime: 2021-02-10 09:15:41
  * @Description: file content
  */
 #ifndef __UPDATE__
@@ -19,7 +19,7 @@ class Upgrade
 private:
     SerialPort serial;
     Response resp;
-    Command cmd;
+    Request cmd;
     Firmware firmware;
 
 public:

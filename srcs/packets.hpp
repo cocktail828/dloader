@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-09 17:12:15
+ * @LastEditTime: 2021-02-10 09:04:20
  * @Description: file content
  */
 #ifndef __PACKETS__
@@ -60,7 +60,7 @@ struct cmd_tail
 };
 #pragma pack()
 
-class Command final
+class Request final
 {
 private:
     const int max_data_len = 2 * 1024;
@@ -76,9 +76,9 @@ private:
     void push_back(T);
 
 public:
-    Command(const std::string &v);
+    Request(const std::string &v);
 
-    ~Command();
+    ~Request();
 
     std::string cmdstr();
 
@@ -131,44 +131,4 @@ public:
     uint32_t rawdatalen();
 };
 
-/**
- * -> ae 0c 00 00 00   ff 00 00
- * -> 00 00 00 00 00   00 00 00 00 00 00 00
- * <- ae 04 00 00 00   ff 00 00 00 00 00 00
- * 
- * -> ae 11 00 00 00   ff 00 00
- * -> 04 00 00 00 00   80 83 00 40 33 00 00
- * -> 50 44 4c 31 00  // PDL1
- * <- ae 04 00 00 00   ff 00 00 00 00 00 00
- * 
- * 
- * -> ae 0c 08 00 00   ff 00 00
- * -> 05 00 00 00 00   00 00 00 00 08 00 00
- * -> data  2048 (0x800)
- * <- ae 04 00 00 00   ff 00 00 00 00 00 00 
- * 
- * -> ae 0c 08 00 00   ff 00 00
- * -> 05 00 00 00 01   00 00 00 00 08 00 00
- * -> data  2048
- * <- ae 04 00 00 00   ff 00 00 00 00 00 00
- * 
- *             ................
- * -> ae 0c 08 00 00   ff 00 00
- * -> 05 00 00 00 02   00 00 00 00 08 00 00  HOSTFDL_DATA
- * -> data  2048
- * <- ae 04 00 00 00   ff 00 00 00 00 00 00
- * 
- * -> ae 4c 03 00 00   ff 00 00
- * -> 05 00 00 00 06   00 00 00 40 03 00 00
- * -> data  832 (0x340)
- * <- ae 04 00 00 00   ff 00 00 00 00 00 00
- * 
- * -> ae 10 00 00 00   ff 00 00
- * -> 06 00 00 00 00   00 00 00 00 00 00 00
- * -> 1c 3c 6e 06
- * <- ae 04 00 00 00   ff 00 00 00 00 00 00
- * -> ae 0c 00 00 00   ff 00 00 00 00 00 00
- * -> 07 00 00 00 06   00 00 00 00 00 00 00
- * 
- */
 #endif //__PACKETS__

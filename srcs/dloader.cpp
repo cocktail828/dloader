@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 12:21:12
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-09 15:54:28
+ * @LastEditTime: 2021-02-10 10:34:35
  * @Description: file content
  */
 #include <iostream>
@@ -23,6 +23,7 @@ extern "C"
 #include "upgrade.hpp"
 #include "devices.hpp"
 #include "config.hpp"
+#include "common.hpp"
 
 using namespace std;
 
@@ -90,6 +91,7 @@ string auto_find_pac(const string path)
 string auto_find_dev(const string &port)
 {
     Device dev;
+    string ttydev;
     int try_time = 0;
     int max_try_time = 15;
 
@@ -104,11 +106,12 @@ string auto_find_dev(const string &port)
                 continue;
             iter->use_flag = true;
 
-            return dev.get_interface(iter->usbid, iter->usbif).ttyusb;
+            ttydev = dev.get_interface(iter->usbid, iter->usbif).ttyusb;
         }
         cerr << "find no support device" << endl;
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
+    cerr << "choose device: " << config.device << endl;
 
     return "";
 }
@@ -188,11 +191,6 @@ int main(int argc, char **argv)
         argv++;
     }
 
-    if (!config_path.empty() && access(config_path.c_str(), F_OK))
-    {
-        cerr << "cannot access" << config_path << endl;
-        return -1;
-    }
     load_config(config_path.empty() ? DEFAULT_CONFIG : config_path);
 
     while ((opt = getopt(argc, argv, "hf:d:x:")) > 0)
@@ -209,12 +207,7 @@ int main(int argc, char **argv)
 
         case 'x':
         {
-            if (access(optarg, F_OK))
-            {
-                cerr << "cannot access pac_file " << optarg << endl;
-                return -1;
-            }
-            else
+            if (!access(optarg, F_OK))
             {
                 Firmware fm(optarg);
                 string extdir = ".";
@@ -232,25 +225,11 @@ int main(int argc, char **argv)
         }
     }
 
-    if (config.pac_path.empty() || access(config.pac_path.c_str(), F_OK))
-    {
-        cerr << "cannot access pac_file " << config.pac_path << endl;
-        return -1;
-    }
-    else
-    {
+    if (!config.pac_path.empty() && is_dir(config.pac_path))
         config.pac_path = auto_find_pac(config.pac_path);
-    }
 
-    if (!config.device.empty() && access(config.device.c_str(), F_OK))
-    {
-        cerr << "cannot access device " << config.device << endl;
-        return -1;
-    }
-    else if (config.device.empty())
-    {
+    if (config.device.empty())
         config.device = "/dev/" + auto_find_dev(config.usb_physical_port);
-    }
 
     cerr << "choose device: " << config.device << endl;
 

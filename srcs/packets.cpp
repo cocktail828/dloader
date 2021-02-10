@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-09 15:12:44
+ * @LastEditTime: 2021-02-10 08:45:57
  * @Description: file content
  */
 #include <iostream>
@@ -20,12 +20,12 @@ const static uint8_t MAGIC_5d = 0x5d;
 #define FRAMEDATA(p, n, t) (reinterpret_cast<t *>(p + n))
 #define FRAMETAIL(p, n) (reinterpret_cast<cmd_tail *>(p + n))
 
-Command::Command(const std::string &v) : modem_name(v)
+Request::Request(const std::string &v) : modem_name(v)
 {
     _data = new uint8_t[max_data_len];
 }
 
-Command::~Command()
+Request::~Request()
 {
     if (_data)
         delete[] _data;
@@ -33,7 +33,7 @@ Command::~Command()
     _data = nullptr;
 }
 
-std::string Command::cmdstr()
+std::string Request::cmdstr()
 {
     cmd_header *hdr = FRAMEHDR(_data);
 
@@ -65,28 +65,28 @@ std::string Command::cmdstr()
     }
 }
 
-uint8_t *Command::data()
+uint8_t *Request::data()
 {
     return _data;
 }
 
-uint32_t Command::datalen()
+uint32_t Request::datalen()
 {
     return _reallen;
 }
 
-uint8_t *Command::rawdata()
+uint8_t *Request::rawdata()
 {
     return _data + sizeof(cmd_header);
 }
 
-uint32_t Command::rawdatalen()
+uint32_t Request::rawdatalen()
 {
     auto hdr = FRAMEHDR(_data);
     return be16toh(hdr->data_length);
 }
 
-uint16_t Command::crc16(char *src, uint32_t len)
+uint16_t Request::crc16(char *src, uint32_t len)
 {
 #define CRC_16_POLYNOMIAL 0x1021
 #define CRC_16_L_POLYNOMIAL 0x8000
@@ -115,7 +115,7 @@ uint16_t Command::crc16(char *src, uint32_t len)
     return (crc);
 }
 
-uint16_t Command::frm_chk(uint16_t *src, uint32_t len)
+uint16_t Request::frm_chk(uint16_t *src, uint32_t len)
 {
     unsigned int sum = 0;
     uint16_t SourceValue, DestValue;
@@ -143,7 +143,7 @@ uint16_t Command::frm_chk(uint16_t *src, uint32_t len)
     return (~sum);
 }
 
-uint16_t Command::crc16(uint16_t crc, uint8_t *buffer, uint32_t len)
+uint16_t Request::crc16(uint16_t crc, uint8_t *buffer, uint32_t len)
 {
     /** CRC table for the CRC-16. The poly is 0x8005 (x^16 + x^15 + x^2 + 1) */
     uint16_t const crc16_table[256] = {
@@ -185,7 +185,7 @@ uint16_t Command::crc16(uint16_t crc, uint8_t *buffer, uint32_t len)
     return crc;
 }
 
-void Command::reinit(REQTYPE req)
+void Request::reinit(REQTYPE req)
 {
     cmd_header *hdr = FRAMEHDR(_data);
 
@@ -196,7 +196,7 @@ void Command::reinit(REQTYPE req)
     _reallen = sizeof(cmd_header);
 }
 
-void Command::finishup()
+void Request::finishup()
 {
     cmd_tail *tail = FRAMETAIL(_data, _reallen);
 
@@ -207,7 +207,7 @@ void Command::finishup()
 }
 
 template <typename T>
-void Command::push_back(T val)
+void Request::push_back(T val)
 {
     cmd_header *hdr = FRAMEHDR(_data);
 
@@ -238,19 +238,19 @@ void Command::push_back(T val)
     hdr->data_length = htobe16(_reallen - sizeof(cmd_header));
 }
 
-void Command::newCheckBaud()
+void Request::newCheckBaud()
 {
     _data[0] = 0x7e;
     _reallen = 1;
 }
 
-void Command::newConnect()
+void Request::newConnect()
 {
     reinit(REQTYPE::BSL_CMD_CONNECT);
     finishup();
 }
 
-void Command::newStartData(uint32_t addr, uint32_t len)
+void Request::newStartData(uint32_t addr, uint32_t len)
 {
     reinit(REQTYPE::BSL_CMD_START_DATA);
     push_back(addr);
@@ -262,7 +262,7 @@ void Command::newStartData(uint32_t addr, uint32_t len)
  * 7e -> 7d 5e
  * 7d -> 7d 5d
  */
-void Command::newMidstData(uint8_t *buf, uint32_t len)
+void Request::newMidstData(uint8_t *buf, uint32_t len)
 {
     cmd_header *hdr = FRAMEHDR(_data);
 
@@ -289,13 +289,13 @@ void Command::newMidstData(uint8_t *buf, uint32_t len)
     finishup();
 }
 
-void Command::newEndData()
+void Request::newEndData()
 {
     reinit(REQTYPE::BSL_CMD_END_DATA);
     finishup();
 }
 
-void Command::newChangeBaud(BAUD baud)
+void Request::newChangeBaud(BAUD baud)
 {
     reinit(REQTYPE::BSL_CMD_CHANGE_BAUD);
     push_back(static_cast<uint32_t>(baud));

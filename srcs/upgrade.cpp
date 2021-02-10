@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:36:51
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-09 17:26:35
+ * @LastEditTime: 2021-02-10 09:05:08
  * @Description: file content
  */
 
@@ -165,81 +165,3 @@ int Upgrade::level1()
     std::cerr << __func__ << " finished" << std::endl;
     return 0;
 }
-
-/**
- * -> ae 0c 00 00 00   ff 00 00
- * -> 00 00 00 00 00   00 00 00 00 00 00 00
- * <- 
- * 
- * -> ae 11 00 00 00   ff 00 00
- * -> 04 00 00 00 00   80 83 00 40 33 00 00
- * -> 50 44 4c 31 00  // PDL1
- * <- 
- * 
- * 
- * -> ae 0c 08 00 00   ff 00 00
- * -> 05 00 00 00 00   00 00 00 00 08 00 00
- * -> data  2048
- * <-  
- * 
- * -> ae 0c 08 00 00   ff 00 00
- * -> 05 00 00 00 01   00 00 00 00 08 00 00
- * -> data  2048
- * <- 
- * 
- *             ................
- * -> ae 0c 08 00 00   ff 00 00
- * -> 05 00 00 00 02   00 00 00 00 08 00 00  HOSTFDL_DATA
- * -> data  2048
- * <- 
- * 
- * -> ae 4c 03 00 00   ff 00 00
- * -> 05 00 00 00 06   00 00 00 40 03 00 00
- * -> data  832 (0x340)
- * <- 
- * 
- * -> ae 10 00 00 00   ff 00 00
- * -> 06 00 00 00 00   00 00 00 00 00 00 00
- * -> 1c 3c 6e 06
- * <- 
- * -> ae 0c 00 00 00   ff 00 00 00 00 00 00
- * -> 07 00 00 00 06   00 00 00 00 00 00 00
- * 
- */
-#define HOFDL_MAGIC 0xff00
-#define HOFDL_EDGE 0xae
-
-struct HOSTFDL_INIT1 //ae 11 00 00 00   ff 00 00
-{
-    uint8_t edge;
-    uint8_t type; //11
-    uint16_t unknow;
-    uint32_t magic;
-};
-
-struct HOSTFDL_INIT2 //04 00 00 00 00   80 83 00 40 33 00 00
-{
-    uint8_t edge;
-    uint8_t type; //11
-    uint16_t unknow;
-    uint32_t xx; // 00 80 83 00
-    uint32_t total_len;
-};
-// next send "FDL1"  50 44 4c 31 00  // PDL1
-
-struct HOSTFDL_PREDATA1
-{
-    uint32_t host_magic;
-};
-
-struct HOSTFDL_PRESEND2 // ok
-{
-    uint32_t type; // 05
-    uint32_t index;
-    uint32_t len; // little-endian
-};
-
-struct HOSTFDL_ACK
-{
-    // <- ae 04 00 00 00 ff 00 00 00 00 00 00
-};
