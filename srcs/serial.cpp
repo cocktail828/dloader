@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:41:38
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-10 14:42:16
+ * @LastEditTime: 2021-02-18 09:48:14
  * @Description: file content
  */
 
@@ -29,7 +29,7 @@ SerialPort::SerialPort(const std::string &tty)
     if (ttyfd > 0)
     {
         std::cerr << "serial successfully open " << ttydev << std::endl;
-        buffer = new uint8_t[max_buf_size];
+        buffer = new (std::nothrow) uint8_t[max_buf_size];
 
         epfd = epoll_create(10);
         event.data.fd = ttyfd;

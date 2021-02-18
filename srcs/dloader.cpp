@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 12:21:12
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-10 15:10:30
+ * @LastEditTime: 2021-02-18 10:13:54
  * @Description: file content
  */
 #include <iostream>
@@ -26,9 +26,6 @@ extern "C"
 
 using namespace std;
 
-#define MAJOR_VER 0
-#define MINOR_VER 0
-#define REVISION_VER 1
 #define _STRINGFY(v) #v
 #define STRINGFY(v) _STRINGFY(v)
 #define VERSION_STR     \

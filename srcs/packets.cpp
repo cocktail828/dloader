@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-10 15:09:17
+ * @LastEditTime: 2021-02-18 09:48:29
  * @Description: file content
  */
 #include <iostream>
@@ -22,7 +22,7 @@ const static uint8_t MAGIC_5d = 0x5d;
 
 Request::Request()
 {
-    _data = new uint8_t[max_data_len];
+    _data = new (std::nothrow) uint8_t[max_data_len];
 }
 
 Request::~Request()
@@ -310,7 +310,7 @@ void Request::newChangeBaud(BAUD baud)
 
 Response::Response()
 {
-    _data = new uint8_t[max_data_len];
+    _data = new (std::nothrow) uint8_t[max_data_len];
 }
 
 Response ::~Response()

@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-10 14:48:18
+ * @LastEditTime: 2021-02-18 10:10:44
  * @Description: file content
  */
 #include <iostream>
@@ -26,19 +26,6 @@ using namespace tinyxml2;
 
 #include "scopeguard.hpp"
 #include "firmware.hpp"
-
-static const char *FileIDs[] = {
-    "HOST_FDL",
-    "FDL2",
-    "BOOTLOADER",
-    "AP",
-    "PS",
-    "FMT_FSSYS",
-    "FLASH",
-    "NV",
-    "PREPACK",
-    "PHASECHECK",
-};
 
 Firmware::Firmware(const std::string pacf)
     : pac_file(pacf), pachdr(nullptr), binhdr(nullptr)
@@ -93,7 +80,7 @@ int Firmware::pacparser()
     std::cerr << "ProductAlias: " << WCHARSTR(pachdr->szPrdAlias) << std::endl;
     std::cerr << "Version: " << WCHARSTR(pachdr->szVersion) << std::endl;
 
-    binhdr = new bin_header_t[pachdr->nFileCount];
+    binhdr = new (std::nothrow) bin_header_t[pachdr->nFileCount];
     for (int i = 0; i < pachdr->nFileCount; i++)
     {
         fin.read(reinterpret_cast<char *>(&binhdr[i]), sizeof(bin_header_t));
@@ -120,12 +107,6 @@ int Firmware::unpack(int idx, const std::string &extdir)
     uint64_t filesz;
     std::string fpath;
     std::ifstream fin(pac_file, std::ios::binary);
-
-    if (!is_index_valid(idx))
-    {
-        std::cerr << __func__ << "invalid index error" << std::endl;
-        return -1;
-    }
 
     if (!fin.is_open())
     {
@@ -171,7 +152,15 @@ int Firmware::unpack(int idx, const std::string &extdir)
 
 int Firmware::unpack(const std::string &idstr, const std::string &extdir)
 {
-    return unpack(fileid_to_index(idstr), extdir);
+    int idx = fileid_to_index(idstr);
+
+    if (!is_index_valid(idx))
+    {
+        std::cerr << __func__ << "invalid index error" << std::endl;
+        return -1;
+    }
+
+    return unpack(idx, extdir);
 }
 
 int Firmware::unpack_all(const std::string &extdir)
@@ -193,21 +182,6 @@ XMLNode *Firmware::xmltree_find_node(XMLNode *root, const std::string &nm)
         return root;
 
     for (auto n = root->FirstChild(); n; n = n->NextSibling())
-    {
-        auto r = xmltree_find_node(n, nm);
-        if (r)
-            return r;
-    }
-
-    return nullptr;
-};
-
-XMLNode *Firmware::xmltree_find_node(XMLDocument *doc, const std::string &nm)
-{
-    if (!doc || !doc->RootElement())
-        return nullptr;
-
-    for (auto n = doc->RootElement()->FirstChild(); n; n = n->NextSibling())
     {
         auto r = xmltree_find_node(n, nm);
         if (r)
@@ -320,7 +294,6 @@ int Firmware::xmlparser()
     char *xmlbuf = nullptr;
     XMLDocument doc;
     XMLError xmlerr;
-    size_t filesz = 0;
     int xmlidx = -1;
 
     ON_SCOPE_EXIT
@@ -329,9 +302,6 @@ int Firmware::xmlparser()
         if (xmlbuf)
             delete[] xmlbuf;
     };
-
-    xmlbuf = new char[filesz];
-    memset(xmlbuf, 0, filesz);
 
     for (int i = 0; i < pachdr->nFileCount; i++)
     {
@@ -349,7 +319,13 @@ int Firmware::xmlparser()
     }
     else
     {
+        size_t filesz = 0;
         std::ifstream fin(pac_file);
+
+        filesz = file_size(xmlidx);
+        xmlbuf = new (std::nothrow) char[filesz];
+        memset(xmlbuf, 0, filesz);
+
         fin.seekg(file_offset(xmlidx), std::ios::beg);
         fin.read(xmlbuf, file_size(xmlidx));
         fin.close();
@@ -358,8 +334,7 @@ int Firmware::xmlparser()
     xmlerr = doc.Parse(xmlbuf);
     if (xmlerr == XML_SUCCESS)
     {
-        XMLNode *scheme = xmltree_find_node(&doc, "Scheme");
-        std::cerr << "xml parser ok" << std::endl;
+        XMLNode *scheme = xmltree_find_node(doc.RootElement(), "Scheme");
         if (scheme)
             return xmlparser_file(scheme);
     }
@@ -386,14 +361,13 @@ bool Firmware::is_index_valid(int idx)
 
 int Firmware::fileid_to_index(const std::string &idstr)
 {
-    std::string str;
-    std::transform(idstr.begin(), idstr.end(), str.begin(), toupper);
-    for (int idx = 0; idx < sizeof(FileIDs) / sizeof(FileIDs[0]); idx++)
+    for (int idx = 0; idx < pachdr->nFileCount; idx++)
     {
-        if (str == FileIDs[idx])
+        if (!idstr.empty() && idstr == WCHARSTR(binhdr[idx].szFileID))
             return idx;
     }
 
+    std::cerr << __func__ << "invalid file id: " << idstr << std::endl;
     return -1;
 }
 

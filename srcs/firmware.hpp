@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-10 14:20:08
+ * @LastEditTime: 2021-02-18 09:34:50
  * @Description: file content
  */
 #ifndef __FIRMWARE__
@@ -86,7 +86,6 @@ private:
     std::vector<XMLNVInfo> xmlnvvec;
 
 private:
-    tinyxml2::XMLNode *xmltree_find_node(tinyxml2::XMLDocument *, const std::string &);
     tinyxml2::XMLNode *xmltree_find_node(tinyxml2::XMLNode *, const std::string &);
     int xmlparser_file(tinyxml2::XMLNode *);
     int xmlparser_nv(tinyxml2::XMLNode *);
