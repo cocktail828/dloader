@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-18 09:48:29
+ * @LastEditTime: 2021-02-19 15:05:31
  * @Description: file content
  */
 #include <iostream>
@@ -18,18 +18,19 @@ const static uint8_t MAGIC_5e = 0x5e;
 const static uint8_t MAGIC_5d = 0x5d;
 #define FRAMEHDR(p) (reinterpret_cast<cmd_header *>(p))
 #define FRAMEDATA(p, n, t) (reinterpret_cast<t *>(p + n))
+#define FRAMEDATAHDR(p) (p + sizeof(cmd_header))
 #define FRAMETAIL(p, n) (reinterpret_cast<cmd_tail *>(p + n))
 
 Request::Request()
+    : _reallen(0), crc_modle(CRC_MODLE::CRC_BOOTCODE)
 {
-    _data = new (std::nothrow) uint8_t[max_data_len];
+    _data = new (std::nothrow) uint8_t[MAX_DATA_LEN]();
 }
 
 Request::~Request()
 {
     if (_data)
         delete[] _data;
-
     _data = nullptr;
 }
 
@@ -92,7 +93,12 @@ uint32_t Request::rawdatalen()
     return be16toh(hdr->data_length);
 }
 
-uint16_t Request::crc16(char *src, uint32_t len)
+void Request::set_crc(CRC_MODLE mod)
+{
+    crc_modle = mod;
+}
+
+uint16_t Request::crc16_bootcode(char *src, uint32_t len)
 {
 #define CRC_16_POLYNOMIAL 0x1021
 #define CRC_16_L_POLYNOMIAL 0x8000
@@ -121,7 +127,7 @@ uint16_t Request::crc16(char *src, uint32_t len)
     return (crc);
 }
 
-uint16_t Request::frm_chk(uint16_t *src, uint32_t len)
+uint16_t Request::crc16_fdl(uint16_t *src, uint32_t len)
 {
     unsigned int sum = 0;
     uint16_t SourceValue, DestValue;
@@ -149,7 +155,7 @@ uint16_t Request::frm_chk(uint16_t *src, uint32_t len)
     return (~sum);
 }
 
-uint16_t Request::crc16(uint16_t crc, uint8_t *buffer, uint32_t len)
+uint16_t Request::crc16_nv(uint16_t crc, uint8_t *buffer, uint32_t len)
 {
     /** CRC table for the CRC-16. The poly is 0x8005 (x^16 + x^15 + x^2 + 1) */
     uint16_t const crc16_table[256] = {
@@ -204,12 +210,51 @@ void Request::reinit(REQTYPE req)
 
 void Request::finishup()
 {
+    uint32_t magic_num = 0;
     cmd_tail *tail = FRAMETAIL(_data, _reallen);
 
-    tail->crc16 = htobe16(frm_chk((uint16_t *)(_data + 1), _reallen - 1 - sizeof(cmd_tail)));
-    tail->magic = MAGIC_7e;
+    if (crc_modle == CRC_MODLE::CRC_BOOTCODE)
+        tail->crc16 = htobe16(crc16_bootcode(reinterpret_cast<char *>(_data + 1), _reallen - 1));
+    else if (crc_modle == CRC_MODLE::CRC_FDL)
+        tail->crc16 = htobe16(crc16_fdl(reinterpret_cast<uint16_t *>(_data + 1), (_reallen - 1)));
 
+    tail->magic = MAGIC_7e;
     _reallen += sizeof(cmd_tail);
+
+    // do data escape
+    for (uint32_t pos = 1; pos < _reallen - 1; pos++)
+    {
+        if (_data[pos] == MAGIC_7e || _data[pos] == MAGIC_7d)
+            magic_num++;
+    }
+
+    if (magic_num == 0)
+        return;
+
+    _reallen += magic_num;
+    _data[_reallen - 1] = MAGIC_7e;
+    for (uint32_t pos_l = _reallen - magic_num - 2, pos_r = _reallen - 2; pos_l > 1; pos_l--)
+    {
+        if (_data[pos_l] == MAGIC_7e)
+        {
+            _data[pos_r--] = MAGIC_5e;
+            _data[pos_r--] = MAGIC_7d;
+            magic_num--;
+        }
+        else if (_data[pos_l] == MAGIC_7d)
+        {
+            _data[pos_r--] = MAGIC_5d;
+            _data[pos_r--] = MAGIC_7d;
+            magic_num--;
+        }
+        else
+        {
+            _data[pos_r--] = _data[pos_l];
+        }
+
+        if (magic_num == 0)
+            break;
+    }
 }
 
 template <typename T>
@@ -224,15 +269,15 @@ void Request::push_back(T val)
         break;
 
     case 2:
-        *FRAMEDATA(_data, _reallen, T) = htobe16(val);
+        *FRAMEDATA(_data, _reallen, T) = val;
         break;
 
     case 4:
-        *FRAMEDATA(_data, _reallen, T) = htobe32(val);
+        *FRAMEDATA(_data, _reallen, T) = val;
         break;
 
     case 8:
-        *FRAMEDATA(_data, _reallen, T) = htobe64(val);
+        *FRAMEDATA(_data, _reallen, T) = val;
         break;
 
     default:
@@ -259,8 +304,8 @@ void Request::newConnect()
 void Request::newStartData(uint32_t addr, uint32_t len)
 {
     reinit(REQTYPE::BSL_CMD_START_DATA);
-    push_back(addr);
-    push_back(len);
+    push_back(htobe32(addr));
+    push_back(htobe32(len));
     finishup();
 }
 
@@ -271,27 +316,15 @@ void Request::newStartData(uint32_t addr, uint32_t len)
 void Request::newMidstData(uint8_t *buf, uint32_t len)
 {
     cmd_header *hdr = FRAMEHDR(_data);
+    uint8_t *dataptr = FRAMEDATAHDR(_data);
 
     reinit(REQTYPE::BSL_CMD_MIDST_DATA);
-    for (int pos = 0; pos < len; pos++)
-    {
-        if (buf[pos] == MAGIC_7e)
-        {
-            _data[_reallen++] = MAGIC_7d;
-            _data[_reallen++] = MAGIC_5e;
-        }
-        else if (buf[pos] == MAGIC_7d)
-        {
-            _data[_reallen++] = MAGIC_7d;
-            _data[_reallen++] = MAGIC_5d;
-        }
-        else
-        {
-            _data[_reallen++] = buf[pos];
-        }
-    }
 
-    hdr->data_length = htobe16(_reallen - sizeof(cmd_header));
+    // caculate rawdata's crc before escape
+    std::copy(buf, buf + len, dataptr);
+    hdr->data_length = htobe16(len);
+    _reallen += len;
+
     finishup();
 }
 
@@ -301,22 +334,65 @@ void Request::newEndData()
     finishup();
 }
 
+void Request::newExecData()
+{
+    reinit(REQTYPE::BSL_CMD_EXEC_DATA);
+    finishup();
+}
+
+void Request::newNormalReset()
+{
+    reinit(REQTYPE::BSL_CMD_NORMAL_RESET);
+    finishup();
+}
+
+void Request::newReadFlash(uint32_t addr, uint32_t size, uint32_t offset)
+{
+    reinit(REQTYPE::BSL_CMD_READ_FLASH);
+    push_back(htobe32(addr));
+    push_back(htobe32(size));
+
+    if (offset)
+        push_back(htobe32(offset));
+    finishup();
+}
+
+void Request::newEraseFlash(uint32_t addr, uint32_t size)
+{
+    reinit(REQTYPE::BSL_CMD_READ_FLASH);
+    push_back(htobe32(addr));
+    push_back(htobe32(size));
+
+    finishup();
+}
+
+void Request::newErasePartition(uint32_t addr)
+{
+    newEraseFlash(addr, 0);
+}
+
+void Request::newEraseALL()
+{
+    newEraseFlash(0, 0xffffffff);
+}
+
 void Request::newChangeBaud(BAUD baud)
 {
     reinit(REQTYPE::BSL_CMD_CHANGE_BAUD);
-    push_back(static_cast<uint32_t>(baud));
+    push_back(htobe32(static_cast<uint32_t>(baud)));
     finishup();
 }
 
 Response::Response()
 {
-    _data = new (std::nothrow) uint8_t[max_data_len];
+    _data = new (std::nothrow) uint8_t[MAX_DATA_LEN]();
 }
 
 Response ::~Response()
 {
     if (_data)
         delete[] _data;
+    _data = nullptr;
 }
 
 REPTYPE Response::type()
@@ -396,7 +472,7 @@ void Response::parser(uint8_t *d, uint32_t len)
 
 void Response::reset()
 {
-    memset(_data, 0, max_data_len);
+    memset(_data, 0, MAX_DATA_LEN);
     _reallen = 0;
 }
 

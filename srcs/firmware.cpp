@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-18 10:10:44
+ * @LastEditTime: 2021-02-19 14:03:00
  * @Description: file content
  */
 #include <iostream>
@@ -37,9 +37,11 @@ Firmware::~Firmware()
 {
     if (pachdr)
         delete pachdr;
+    pachdr = nullptr;
 
     if (binhdr)
         delete[] binhdr;
+    binhdr = nullptr;
 }
 
 #define WCHARSTR(p) wcharToChar(p, sizeof(p))
@@ -67,7 +69,12 @@ int Firmware::pacparser()
         std::cerr << "fail to open " << pac_file << std::endl;
         return -1;
     }
-    ON_SCOPE_EXIT { fin.close(); };
+
+    ON_SCOPE_EXIT
+    {
+        if (fin.is_open())
+            fin.close();
+    };
 
     fin.seekg(0, std::ios::end);
     std::cerr << pac_file << " has size in bytes " << fin.tellg() << std::endl;
@@ -116,8 +123,11 @@ int Firmware::unpack(int idx, const std::string &extdir)
 
     ON_SCOPE_EXIT
     {
-        fin.close();
-        fout.close();
+        if (fin.is_open())
+            fin.close();
+
+        if (fout.is_open())
+            fout.close();
     };
 
     filesz = file_size(idx);
@@ -156,7 +166,7 @@ int Firmware::unpack(const std::string &idstr, const std::string &extdir)
 
     if (!is_index_valid(idx))
     {
-        std::cerr << __func__ << "invalid index error" << std::endl;
+        std::cerr << __func__ << " invalid index error" << std::endl;
         return -1;
     }
 
@@ -218,7 +228,9 @@ int Firmware::xmlparser_file(XMLNode *node)
 #define CONSTCHARTOXINT(p) (p ? strtoul(p, NULL, 16) : 0)
     for (; filenode; filenode = filenode->NextSibling())
     {
+        int idx = 0;
         XMLFileInfo info;
+        info.reset();
         auto n = xmltree_find_node(filenode, "ID");
         if (n)
             info.fileid = n->FirstChild()->Value();
@@ -239,11 +251,17 @@ int Firmware::xmlparser_file(XMLNode *node)
         if (n)
             info.checkflag = CONSTCHARTOINT(n->FirstChild()->Value());
 
-        info.realsize = file_size(fileid_to_index(info.fileid));
+        idx = fileid_to_index(info.fileid);
+        if (idx < 0)
+            continue;
+
+        info.realsize = file_size(idx);
         xmlfilevec.push_back(info);
-        std::cerr << "FILEID: " << info.fileid
+        std::cerr << "idx: " << idx
+                  << ", FILEID: " << info.fileid
                   << ", Base: 0x" << std::hex << info.base
                   << ", Size: 0x" << std::hex << info.size
+                  << ", RealSize: 0x" << std::hex << info.realsize
                   << ", Flag: " << info.flag
                   << ", CheckFlag: " << info.checkflag
                   << std::dec << std::endl;
@@ -285,7 +303,7 @@ int Firmware::xmlparser_file(XMLNode *node)
 
 int Firmware::xmlparser_nv(XMLNode *)
 {
-    std::cerr << "current not implemented error " << __func__ << std::endl;
+    std::cerr << __func__ << " current not implemented error" << std::endl;
     return true;
 }
 
@@ -301,6 +319,7 @@ int Firmware::xmlparser()
         doc.Clear();
         if (xmlbuf)
             delete[] xmlbuf;
+        xmlbuf = nullptr;
     };
 
     for (int i = 0; i < pachdr->nFileCount; i++)
@@ -314,21 +333,25 @@ int Firmware::xmlparser()
 
     if (!is_index_valid(xmlidx))
     {
-        std::cerr << __func__ << "invalid index error" << std::endl;
+        std::cerr << __func__ << " invalid index error" << std::endl;
         return -1;
     }
     else
     {
         size_t filesz = 0;
+        size_t fileoffset = 0;
         std::ifstream fin(pac_file);
 
         filesz = file_size(xmlidx);
-        xmlbuf = new (std::nothrow) char[filesz];
-        memset(xmlbuf, 0, filesz);
+        fileoffset = file_offset(xmlidx);
+        xmlbuf = new (std::nothrow) char[filesz + 1]();
+        memset(xmlbuf, 0, filesz + 1);
 
-        fin.seekg(file_offset(xmlidx), std::ios::beg);
-        fin.read(xmlbuf, file_size(xmlidx));
+        fin.seekg(fileoffset, std::ios::beg);
+        fin.read(xmlbuf, filesz);
         fin.close();
+        std::cerr << "load xml data from pac file, size:" << std::dec
+                  << filesz << " offset:" << fileoffset << std::endl;
     }
 
     xmlerr = doc.Parse(xmlbuf);
@@ -361,13 +384,17 @@ bool Firmware::is_index_valid(int idx)
 
 int Firmware::fileid_to_index(const std::string &idstr)
 {
+    std::string idstr_upper(idstr);
+    std::transform(idstr.begin(), idstr.end(), idstr_upper.begin(), toupper);
     for (int idx = 0; idx < pachdr->nFileCount; idx++)
     {
-        if (!idstr.empty() && idstr == WCHARSTR(binhdr[idx].szFileID))
+        std::string fileid_upper(WCHARSTR(binhdr[idx].szFileID));
+        std::transform(fileid_upper.begin(), fileid_upper.end(), fileid_upper.begin(), toupper);
+        if (!idstr.empty() && idstr_upper == fileid_upper)
             return idx;
     }
 
-    std::cerr << __func__ << "invalid file id: " << idstr << std::endl;
+    std::cerr << __func__ << " invalid file id: " << idstr << std::endl;
     return -1;
 }
 
@@ -375,7 +402,7 @@ size_t Firmware::file_size(int idx)
 {
     if (!is_index_valid(idx))
     {
-        std::cerr << __func__ << "invalid index error" << std::endl;
+        std::cerr << __func__ << " invalid index error" << std::endl;
         return 0;
     }
 
@@ -392,7 +419,7 @@ size_t Firmware::file_offset(int idx)
     size_t offset = sizeof(pac_header_t) + sizeof(bin_header_t) * pachdr->nFileCount;
     if (!is_index_valid(idx))
     {
-        std::cerr << __func__ << "invalid index error" << std::endl;
+        std::cerr << __func__ << " invalid index error" << std::endl;
         return 0;
     }
 
@@ -417,7 +444,7 @@ bool Firmware::get_data(const std::string &idstr, size_t offset, uint8_t *buf, u
     int idx = fileid_to_index(idstr);
     if (!is_index_valid(idx))
     {
-        std::cerr << __func__ << "invalid index error" << std::endl;
+        std::cerr << __func__ << " invalid index error" << std::endl;
         return false;
     }
 

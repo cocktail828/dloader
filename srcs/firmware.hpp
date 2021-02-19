@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-18 09:34:50
+ * @LastEditTime: 2021-02-18 15:12:37
  * @Description: file content
  */
 #ifndef __FIRMWARE__
@@ -68,8 +68,13 @@ struct XMLFileInfo
     uint32_t base;
     uint32_t size;
     uint32_t realsize;
-    bool flag;
-    bool checkflag;
+    uint32_t flag;
+    uint32_t checkflag;
+    
+    void reset() {
+        fileid = "";
+        base = size = realsize = flag=checkflag = 0;
+    }
 };
 
 struct XMLNVInfo

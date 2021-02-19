@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-10 15:09:26
+ * @LastEditTime: 2021-02-19 15:04:16
  * @Description: file content
  */
 #ifndef __PACKETS__
@@ -43,6 +43,14 @@ enum class REPTYPE
     BSL_REP_VERIFY_ERROR = 0x8b,
     BSL_REP_NOT_VERIFY = 0x8c,
     BSL_REP_READ_FLASH = 0x93,
+    BSL_REP_UNKNOW = 0x96,
+};
+
+enum class CRC_MODLE
+{
+    CRC_BOOTCODE, // crc used when talk with bootcode
+    CRC_FDL,      // crc used when talk with fdl
+    CRC_NV,       // crc used when transfer nv
 };
 
 #pragma pack(1)
@@ -60,12 +68,15 @@ struct cmd_tail
 };
 #pragma pack()
 
+// NOTICE: make sure it not less than data len in Midst message
+#define MAX_DATA_LEN 0x2000
+
 class Request final
 {
 private:
-    const int max_data_len = 2 * 1024;
     uint8_t *_data;
     uint16_t _reallen;
+    CRC_MODLE crc_modle;
 
 private:
     void reinit(REQTYPE);
@@ -86,30 +97,32 @@ public:
     uint8_t *rawdata();
     uint32_t rawdatalen();
 
-    /**
-     * CRC Algorithm
-     * used when talk to boot-code
-     */
-    uint16_t crc16(char *src, uint32_t len);
-
-    /* CHECK-SUM */
-    uint16_t frm_chk(uint16_t *src, uint32_t len);
-
-    /** CRC table for the CRC-16. The poly is 0x8005 (x^16 + x^15 + x^2 + 1) */
-    uint16_t crc16(uint16_t crc, uint8_t *src, uint32_t len);
+    void set_crc(CRC_MODLE);
+    uint16_t crc16_bootcode(char *src, uint32_t len);
+    uint16_t crc16_fdl(uint16_t *src, uint32_t len);
+    uint16_t crc16_nv(uint16_t crc, uint8_t *src, uint32_t len);
 
     void newCheckBaud();
     void newConnect();
     void newStartData(uint32_t addr, uint32_t len);
     void newMidstData(uint8_t *buf, uint32_t len);
     void newEndData();
+    void newExecData();
+    void newNormalReset();
+    void newReadFlash(uint32_t addr, uint32_t size, uint32_t offset = 0);
+    /**
+     * set size = 0, let FDL1/FDL2 desides the partition size. usually erase a partition
+     * in old implements, addr=0 && size=0xffffffff means erase all
+     */
+    void newEraseFlash(uint32_t addr, uint32_t size);
+    void newErasePartition(uint32_t addr);
+    void newEraseALL();
     void newChangeBaud(BAUD);
 };
 
 class Response
 {
 private:
-    const int max_data_len = 2 * 1024;
     uint8_t *_data;
     uint16_t _reallen;
 

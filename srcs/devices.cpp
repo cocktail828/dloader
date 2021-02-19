@@ -2,29 +2,31 @@
 #include <sstream>
 #include <fstream>
 
+extern "C"
+{
 #include <dirent.h>
 #include <cstdlib>
 #include <errno.h>
-#include <cstring>
-#include <cstdio>
-
+#include <string.h>
+#include <stdio.h>
 #include <unistd.h>
+}
 
 #include "devices.hpp"
 
-static std::string find_tty_device(const char *_dirname)
+static std::string find_tty_device(const std::string _dirname)
 {
-    struct dirent *ent = NULL;
     DIR *pdir = NULL;
-    std::string dirname(_dirname);
+    struct dirent *ent = NULL;
+    std::string dirname(_dirname + "/tty");
+    std::string ttydev("");
 
-    dirname += "/tty";
     if (access(dirname.c_str(), F_OK))
         dirname = _dirname;
 
     pdir = opendir(dirname.c_str());
     if (!pdir)
-        return "";
+        return ttydev;
 
     while ((ent = readdir(pdir)) != NULL)
     {
@@ -34,13 +36,13 @@ static std::string find_tty_device(const char *_dirname)
         if (!strncmp(ent->d_name, "ttyUSB", 6) ||
             !strncmp(ent->d_name, "ttyACM", 6))
         {
-            closedir(pdir);
-            return std::string(ent->d_name);
+            ttydev = ent->d_name;
+            break;
         }
     }
     closedir(pdir);
 
-    return "";
+    return ttydev;
 }
 
 static std::string file_get_line(const std::string &file)
@@ -113,7 +115,7 @@ int Device::scan_iface(int vid, int pid, std::string usbport, std::string rootdi
         file = std::string(path) + "/modalias";
         iface.modalias = file_get_line(file);
 
-        iface.ttyusb = find_tty_device(path.c_str());
+        iface.ttyusb = find_tty_device(path);
 
         if (iface.cls == -1 || iface.subcls == -1 || iface.proto == -1 || iface.ifno == -1)
             continue;

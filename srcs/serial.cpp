@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:41:38
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-18 09:48:14
+ * @LastEditTime: 2021-02-19 14:26:42
  * @Description: file content
  */
 
@@ -23,19 +23,21 @@ extern "C"
 SerialPort::SerialPort(const std::string &tty)
     : ttydev(tty), ttyfd(-1), epfd(-1), buffer(nullptr), bufsize(0)
 {
-    epoll_event event;
     std::cerr << "serial try open " << ttydev << std::endl;
-    ttyfd = ::open(ttydev.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+    ttyfd = open(ttydev.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (ttyfd > 0)
     {
+        epoll_event event;
         std::cerr << "serial successfully open " << ttydev << std::endl;
-        buffer = new (std::nothrow) uint8_t[max_buf_size];
+        buffer = new (std::nothrow) uint8_t[max_buf_size]();
 
         epfd = epoll_create(10);
+        memset(&event, 0, sizeof(event));
         event.data.fd = ttyfd;
         event.events = EPOLLIN | EPOLLRDHUP;
         if (epoll_ctl(epfd, EPOLL_CTL_ADD, ttyfd, &event))
-            return;
+            std::cerr << "epoll_ctl EPOLL_CTL_ADD fails, ttyfd=" << ttyfd
+                      << ", error=" << strerror(errno) << std::endl;
     }
 }
 
@@ -43,6 +45,7 @@ SerialPort::~SerialPort()
 {
     if (buffer)
         delete[] buffer;
+    buffer = nullptr;
 
     if (epfd > 0)
     {
@@ -83,6 +86,8 @@ void SerialPort::setBaud(BAUD baud)
     cfsetospeed(&tio, BaudARR[static_cast<int>(baud)]);
     cfsetispeed(&tio, BaudARR[static_cast<int>(baud)]);
     tcsetattr(ttyfd, TCSANOW, &tio);
+
+    memset(&settings, 0, sizeof(settings));
     cfmakeraw(&settings);
     settings.c_cflag |= CREAD | CLOCAL;
     tcflush(ttyfd, TCIOFLUSH);

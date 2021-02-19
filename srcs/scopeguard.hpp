@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 13:18:21
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-07 13:18:21
+ * @LastEditTime: 2021-02-19 12:55:50
  * @Description: file content
  */
 #ifndef __SCOPEGUARD__
@@ -29,6 +29,7 @@ namespace ScopeGuard
         {
             if (active)
                 defer_func();
+            active = false;
         }
     };
 

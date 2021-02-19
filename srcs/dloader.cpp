@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 12:21:12
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-18 10:13:54
+ * @LastEditTime: 2021-02-19 14:23:19
  * @Description: file content
  */
 #include <iostream>
@@ -172,7 +172,7 @@ int do_update(const string &name)
     if (!upmgr.prepare())
         return -1;
 
-    return upmgr.upgrade(name);
+    return upmgr.upgrade_udx710();
 }
 
 int main(int argc, char **argv)
@@ -187,6 +187,11 @@ int main(int argc, char **argv)
         argv++;
     }
 
+    // char arr[] = {0x00, 0x01, 0x00, 0x08, 0x9e, 0xff, 0xfe, 0x00, 0x00, 0x09, 0x09, 0x04};
+    // Request req;
+    // req.set_crc(CRC_MODLE::CRC_FDL);
+    // std::cerr << std::hex << req.crc16_fdl((uint16_t*)arr, 12) << std::endl;
+    // return 0;
     load_config(config_path.empty() ? DEFAULT_CONFIG : config_path);
 
     while ((opt = getopt(argc, argv, "hf:x:")) > 0)

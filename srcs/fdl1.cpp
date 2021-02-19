@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-10 09:05:20
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-10 09:54:42
+ * @LastEditTime: 2021-02-19 14:31:18
  * @Description: file content
  */
 #include <iostream>
@@ -49,7 +49,6 @@ struct fdl_cmd_end
 #define FDL1_TAIL 0xff00
 class fdl1
 {
-    const uint32_t max_data_len = 2 * 1024;
     uint8_t *_data;
     uint32_t _reallen;
     int _index;

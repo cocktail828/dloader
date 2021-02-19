@@ -1,6 +1,6 @@
 CXX := clang++
 
-CXXFLAGS += -Wall -g -std=c++11
+CXXFLAGS += -Wall -g -O2 -std=c++17
 
 OBJS := $(patsubst %.cpp, %.o, $(wildcard srcs/*.cpp))
 OBJS += $(patsubst %.cpp, %.o, $(wildcard third-party/tinyxml2/*.cpp))
