@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:36:51
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-19 15:08:09
+ * @LastEditTime: 2021-02-19 17:51:28
  * @Description: file content
  */
 
@@ -205,7 +205,7 @@ int UpgradeManager::transfer(const XMLFileInfo &info, uint32_t maxlen)
     return 0;
 }
 
-int UpgradeManager::exec()
+int UpgradeManager::exec(REPTYPE expt_type)
 {
     req.newExecData();
     if (!talk())
@@ -214,7 +214,7 @@ int UpgradeManager::exec()
         return -1;
     }
 
-    if (resp.type() != REPTYPE::BSL_REP_ACK)
+    if (resp.type() != REPTYPE::BSL_REP_ACK && resp.type() != expt_type)
     {
         std::cerr << __func__ << " newExecData get unexpect response: "
                   << resp.typestr() << ", code=" << static_cast<int>(resp.type()) << std::endl;
@@ -254,7 +254,7 @@ int UpgradeManager::flash_partition(const XMLFileInfo &info)
         if (transfer(info, FRAMESZ_FDL))
             goto _err;
 
-        if (exec())
+        if (exec(REPTYPE::BSL_REP_INCOMPATIBLE_PARTITION))
             goto _err;
     }
     else
@@ -268,7 +268,40 @@ _err:
     std::cerr << __func__ << " fail to flash " << info.fileid << std::endl;
     return -1;
 }
-
+/**
+ * 
+ * flash fdl
+ * flash fdl2
+ * send 0x21
+ * read miscdata
+ * read prodnv
+ * read nr_fixnv1
+ * read nr_fixnv2
+ * write patrition table
+ * flash nr_fixnv1
+ * flash prodnv
+ * flash miscdata
+ * erase uboot
+ * flash splloader
+ * flash sml
+ * flash uboot 
+ * flash boot
+ * flash nr_pmsys
+ * flash nr_agdsp
+ * erase nr_runtimenv1
+ * flash nr_modem
+ * flash nr_v3phy
+ * flash nr_nrphy
+ * flash nr_nrdsp1
+ * flash nr_nrdsp2
+ * flash nr_deltanv
+ * flash recovery
+ * flash recoveryfs
+ * flash system
+ * flash userdata
+ * erase misc
+ * reset
+ */
 int UpgradeManager::upgrade_udx710()
 {
     auto vec = firmware.get_file_vec();

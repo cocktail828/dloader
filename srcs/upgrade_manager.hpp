@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:33
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-19 14:57:50
+ * @LastEditTime: 2021-02-19 16:42:17
  * @Description: file content
  */
 #ifndef __UPDATE__
@@ -27,7 +27,7 @@ private:
     bool talk();
     int connect();
     int transfer(const XMLFileInfo &info, uint32_t maxlen);
-    int exec();
+    int exec(REPTYPE expt_type = REPTYPE::BSL_REP_ACK);
     int flash_partition(const XMLFileInfo &info);
 
 public:

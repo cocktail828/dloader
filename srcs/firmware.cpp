@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-19 14:03:00
+ * @LastEditTime: 2021-02-19 19:07:53
  * @Description: file content
  */
 #include <iostream>
@@ -201,19 +201,8 @@ XMLNode *Firmware::xmltree_find_node(XMLNode *root, const std::string &nm)
     return nullptr;
 };
 
-// <Scheme name = "UIX8910_MODEM">
-//     <File>
-//         <ID> HOST_FDL</ ID>
-//         <IDAlias> HOST_FDL</ IDAlias>
-//         <Type> HOST_FDL</ Type>
-//         <Block>
-//             <Base> 0x838000 < / Base >
-//             <Size> 0x8000 < / Size >
-//         </ Block>
-//         <Flag> 1 < / Flag >
-//         <CheckFlag> 1 < / CheckFlag >
-//         <Description> HOST_FDL</ Description>
-//    </ File>
+#define CONSTCHARTOINT(p) (p ? atoi(p) : 0)
+#define CONSTCHARTOXINT(p) (p ? strtoul(p, NULL, 16) : 0)
 int Firmware::xmlparser_file(XMLNode *node)
 {
     auto filenode = node->FirstChild();
@@ -224,16 +213,40 @@ int Firmware::xmlparser_file(XMLNode *node)
     }
 
     std::cerr << __func__ << " try to farser file info" << std::endl;
-#define CONSTCHARTOINT(p) (p ? atoi(p) : 0)
-#define CONSTCHARTOXINT(p) (p ? strtoul(p, NULL, 16) : 0)
     for (; filenode; filenode = filenode->NextSibling())
     {
         int idx = 0;
         XMLFileInfo info;
+        XMLNode *n = nullptr;
+        const char *backup = "0";
+
         info.reset();
-        auto n = xmltree_find_node(filenode, "ID");
+        if (filenode->ToElement() && filenode->ToElement()->FirstAttribute())
+            backup = filenode->ToElement()->FirstAttribute()->Value();
+        info.isBackup = bool(CONSTCHARTOINT(backup));
+
+        n = xmltree_find_node(filenode, "ID");
         if (n)
             info.fileid = n->FirstChild()->Value();
+
+        if (info.fileid.empty())
+            continue;
+
+        idx = fileid_to_index(info.fileid);
+        if (idx < 0)
+            continue;
+
+        n = xmltree_find_node(filenode, "IDAlias");
+        if (n)
+            info.fileid_alias = n->FirstChild()->Value();
+
+        n = xmltree_find_node(filenode, "Block");
+        if (n && n->ToElement() && n->ToElement()->FirstAttribute())
+            info.blockid = n->ToElement()->FirstAttribute()->Value();
+
+        n = xmltree_find_node(filenode, "Type");
+        if (n)
+            info.type = n->FirstChild()->Value();
 
         n = xmltree_find_node(filenode, "Base");
         if (n)
@@ -251,19 +264,22 @@ int Firmware::xmlparser_file(XMLNode *node)
         if (n)
             info.checkflag = CONSTCHARTOINT(n->FirstChild()->Value());
 
-        idx = fileid_to_index(info.fileid);
-        if (idx < 0)
-            continue;
+        info.isErase = (info.type == "EraseFlash2");
 
         info.realsize = file_size(idx);
         xmlfilevec.push_back(info);
         std::cerr << "idx: " << idx
                   << ", FILEID: " << info.fileid
+                  //   << ", IDAlias: " << info.fileid_alias
+                  << ", Type: " << info.type
+                  << ", BlockID: " << info.blockid
                   << ", Base: 0x" << std::hex << info.base
                   << ", Size: 0x" << std::hex << info.size
                   << ", RealSize: 0x" << std::hex << info.realsize
-                  << ", Flag: " << info.flag
-                  << ", CheckFlag: " << info.checkflag
+                  //   << ", Flag: " << info.flag
+                  //   << ", CheckFlag: " << info.checkflag
+                  << ", isBackup: " << info.isBackup
+                  << ", isErase: " << info.isErase
                   << std::dec << std::endl;
     }
     std::cerr << __func__ << " farser file info end" << std::endl;
@@ -271,40 +287,44 @@ int Firmware::xmlparser_file(XMLNode *node)
     return 0;
 }
 
-//<Product name = "UIX8910_MODEM">
-//    <SchemeName> UIX8910_MODEM</ SchemeName>
-//    <FlashTypeID> 1 < / FlashTypeID >
-//    <Mode> 0 < / Mode >
-//    <NVBackup backup = "1">
-//        <NVItem backup = "1" name = "Calibration">
-//            <ID> 0xffffffff < / ID >
-//            <BackupFlag use = "1" />
-//        </ NVItem>
-//        <NVItem backup = "1" name = "GSM Calibration">
-//            <ID> 0x26d < / ID >
-//            <BackupFlag use = "1">
-//                <NVFlag check = "1" name = "Continue" />
-//            </ BackupFlag>
-//        </ NVItem>
-//        <NVItem backup = "1" name = "LTE Calibration">
-//            <ID> 0x26e < / ID >
-//            <BackupFlag use = "1" />
-//        </ NVItem>
-//        <NVItem backup = "1" name = "IMEI">
-//            <ID> 0xffffffff < / ID >
-//            <BackupFlag use = "1" />
-//        </ NVItem>
-//    </ NVBackup>
-//    <Chips enable = "0">
-//        <ChipItem id = "0x2222" name = "L2" />
-//        <ChipItem id = "0x7777" name = "L7" />
-//    </ Chips>
-//</ Product>
-
-int Firmware::xmlparser_nv(XMLNode *)
+int Firmware::xmlparser_partition(XMLNode *partitions)
 {
-    std::cerr << __func__ << " current not implemented error" << std::endl;
-    return true;
+    for (auto partition = partitions->FirstChild(); partition; partition = partition->NextSibling())
+    {
+        if (partition->ToElement() && partition->ToElement()->FirstAttribute())
+        {
+            XMLNVInfo info;
+
+            info.reset();
+            for (auto a = partition->ToElement()->FirstAttribute(); a; a = a->Next())
+            {
+                if (!a->Name())
+                    continue;
+
+                if (std::string(a->Name()) == "id")
+                    info.blockid = a->Value();
+                else if (std::string(a->Name()) == "size" && a->Value())
+                {
+                    if (std::string(a->Value()).substr(0, 2) == "0x" ||
+                        std::string(a->Value()).substr(0, 2) == "0X")
+                        info.size = CONSTCHARTOXINT(a->Value());
+                    else
+                        info.size = CONSTCHARTOINT(a->Value());
+                }
+
+                if (!info.blockid.empty() && info.size)
+                {
+                    xmlnvvec.push_back(info);
+                    std::cerr << "BlockID: " << info.blockid
+                              << ", Size: " << info.size
+                              << std::dec << std::endl;
+                }
+            }
+        }
+    }
+
+    std::cerr << __func__ << " farser partition info end" << std::endl;
+    return 0;
 }
 
 int Firmware::xmlparser()
@@ -358,8 +378,15 @@ int Firmware::xmlparser()
     if (xmlerr == XML_SUCCESS)
     {
         XMLNode *scheme = xmltree_find_node(doc.RootElement(), "Scheme");
-        if (scheme)
-            return xmlparser_file(scheme);
+        XMLNode *partitions = xmltree_find_node(doc.RootElement(), "Partitions");
+        if (!scheme || xmlparser_file(scheme))
+            return -1;
+
+        if (!partitions || xmlparser_partition(partitions))
+            return -1;
+
+        std::cerr << __func__ << " parser xml finish" << std::endl;
+        return 0;
     }
 
     std::cerr << xmlbuf << std::endl;

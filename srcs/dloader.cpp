@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 12:21:12
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-19 14:23:19
+ * @LastEditTime: 2021-02-19 18:13:24
  * @Description: file content
  */
 #include <iostream>
@@ -171,7 +171,7 @@ int do_update(const string &name)
 
     if (!upmgr.prepare())
         return -1;
-
+return 0;
     return upmgr.upgrade_udx710();
 }
 

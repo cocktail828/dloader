@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-19 15:05:31
+ * @LastEditTime: 2021-02-19 17:50:03
  * @Description: file content
  */
 #include <iostream>
@@ -67,6 +67,18 @@ std::string Request::typestr()
         return "BSL_CMD_CHANGE_BAUD";
     case REQTYPE::BSL_CMD_ERASE_FLASH:
         return "BSL_CMD_ERASE_FLASH";
+    case REQTYPE::BSL_CMD_WRITE_PARTITION_TABLE:
+        return "BSL_CMD_WRITE_PARTITION_TABLE";
+    case REQTYPE::BSL_CMD_READ_PARTITION:
+        return "BSL_CMD_READ_PARTITION";
+    case REQTYPE::BSL_CMD_READ_PARTITION_SIZE:
+        return "BSL_CMD_READ_PARTITION_SIZE";
+    case REQTYPE::BSL_CMD_END_READ_PARTITION:
+        return "BSL_CMD_END_READ_PARTITION";
+    case REQTYPE::BSL_CMD_START_READ_PARTITION:
+        return "BSL_CMD_START_READ_PARTITION";
+    case REQTYPE::BSL_CMD_RESET:
+        return "BSL_CMD_RESET";
     default:
         return "UNKNOW_COMMAND";
     }
@@ -301,11 +313,32 @@ void Request::newConnect()
     finishup();
 }
 
-void Request::newStartData(uint32_t addr, uint32_t len)
+void Request::newStartData(uint32_t addr, uint32_t len, uint32_t cs)
 {
     reinit(REQTYPE::BSL_CMD_START_DATA);
     push_back(htobe32(addr));
     push_back(htobe32(len));
+    if (cs)
+        push_back(htobe32(cs));
+
+    finishup();
+}
+
+void Request::newStartData(const std::string &partition, uint32_t len, uint32_t cs)
+{
+    uint32_t padlen = 0x48 - partition.length() * 2;
+    reinit(REQTYPE::BSL_CMD_START_DATA);
+
+    for (auto ch : partition)
+        push_back(htole16(ch));
+
+    for (; padlen > 0; padlen--)
+        push_back(uint8_t(0));
+
+    push_back(htole32(len));
+    if (cs)
+        push_back(htole32(cs));
+
     finishup();
 }
 
@@ -348,7 +381,7 @@ void Request::newNormalReset()
 
 void Request::newReadFlash(uint32_t addr, uint32_t size, uint32_t offset)
 {
-    reinit(REQTYPE::BSL_CMD_READ_FLASH);
+    reinit(REQTYPE::BSL_CMD_ERASE_FLASH);
     push_back(htobe32(addr));
     push_back(htobe32(size));
 
@@ -359,7 +392,7 @@ void Request::newReadFlash(uint32_t addr, uint32_t size, uint32_t offset)
 
 void Request::newEraseFlash(uint32_t addr, uint32_t size)
 {
-    reinit(REQTYPE::BSL_CMD_READ_FLASH);
+    reinit(REQTYPE::BSL_CMD_ERASE_FLASH);
     push_back(htobe32(addr));
     push_back(htobe32(size));
 
@@ -376,6 +409,20 @@ void Request::newEraseALL()
     newEraseFlash(0, 0xffffffff);
 }
 
+void Request::newErasePartition(const std::string &partition)
+{
+    uint32_t padlen = 0x4c - partition.length() * 2;
+
+    reinit(REQTYPE::BSL_CMD_ERASE_FLASH);
+    for (auto ch : partition)
+        push_back(htole16(ch));
+
+    for (; padlen > 0; padlen--)
+        push_back(uint8_t(0));
+
+    finishup();
+}
+
 void Request::newChangeBaud(BAUD baud)
 {
     reinit(REQTYPE::BSL_CMD_CHANGE_BAUD);
@@ -383,6 +430,41 @@ void Request::newChangeBaud(BAUD baud)
     finishup();
 }
 
+void Request::newReadPartition(const std::string &partition, uint32_t len)
+{
+    uint32_t padlen = 0x48 - partition.length() * 2;
+
+    reinit(REQTYPE::BSL_CMD_READ_PARTITION);
+    for (auto ch : partition)
+        push_back(htole16(ch));
+
+    for (; padlen > 0; padlen--)
+        push_back(uint8_t(0));
+
+    push_back(htole32(len));
+
+    finishup();
+}
+
+void Request::newReadPartitionSize(uint32_t rxsz, uint32_t total_rxsz)
+{
+    reinit(REQTYPE::BSL_CMD_READ_PARTITION_SIZE);
+    push_back(htole32(rxsz));
+    push_back(htole32(total_rxsz));
+    finishup();
+}
+
+void Request::newEndReadPartition()
+{
+    reinit(REQTYPE::BSL_CMD_END_READ_PARTITION);
+    finishup();
+}
+
+/*************************** RESPONSE ***************************/
+/*************************** RESPONSE ***************************/
+/*************************** RESPONSE ***************************/
+/*************************** RESPONSE ***************************/
+/*************************** RESPONSE ***************************/
 Response::Response()
 {
     _data = new (std::nothrow) uint8_t[MAX_DATA_LEN]();
@@ -434,6 +516,8 @@ std::string Response::typestr()
         return "BSL_REP_NOT_VERIFY";
     case REPTYPE::BSL_REP_READ_FLASH:
         return "BSL_REP_READ_FLASH";
+    case REPTYPE::BSL_REP_INCOMPATIBLE_PARTITION:
+        return "BSL_REP_INCOMPATIBLE_PARTITION";
     default:
         return "UNKNOW_RESPONSE";
     }

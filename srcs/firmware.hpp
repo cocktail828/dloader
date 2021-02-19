@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-18 15:12:37
+ * @LastEditTime: 2021-02-19 18:08:38
  * @Description: file content
  */
 #ifndef __FIRMWARE__
@@ -65,20 +65,35 @@ struct bin_header_t
 struct XMLFileInfo
 {
     std::string fileid;
+    std::string fileid_alias;
+    std::string blockid;
+    std::string type;
     uint32_t base;
     uint32_t size;
     uint32_t realsize;
     uint32_t flag;
     uint32_t checkflag;
-    
-    void reset() {
-        fileid = "";
-        base = size = realsize = flag=checkflag = 0;
+    bool isBackup;
+    bool isErase;
+
+    void reset()
+    {
+        fileid = fileid_alias = blockid = type = "";
+        base = size = realsize = flag = checkflag = 0;
+        isBackup = isErase = false;
     }
 };
 
 struct XMLNVInfo
 {
+    std::string blockid;
+
+    uint32_t size;
+    void reset()
+    {
+        blockid = "";
+        size = 0;
+    }
 };
 
 class Firmware
@@ -93,6 +108,7 @@ private:
 private:
     tinyxml2::XMLNode *xmltree_find_node(tinyxml2::XMLNode *, const std::string &);
     int xmlparser_file(tinyxml2::XMLNode *);
+    int xmlparser_partition(tinyxml2::XMLNode *);
     int xmlparser_nv(tinyxml2::XMLNode *);
     bool is_index_valid(int idx);
 

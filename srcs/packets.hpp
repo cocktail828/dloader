@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-19 15:04:16
+ * @LastEditTime: 2021-02-19 17:46:55
  * @Description: file content
  */
 #ifndef __PACKETS__
@@ -25,6 +25,12 @@ enum class REQTYPE
     BSL_CMD_READ_FLASH = 0x6,
     BSL_CMD_CHANGE_BAUD = 0x9,
     BSL_CMD_ERASE_FLASH = 0xa,
+    BSL_CMD_WRITE_PARTITION_TABLE = 0x0b,
+    BSL_CMD_READ_PARTITION = 0x10,
+    BSL_CMD_READ_PARTITION_SIZE = 0x11,
+    BSL_CMD_END_READ_PARTITION = 0x12,
+    BSL_CMD_START_READ_PARTITION = 0x21,
+    BSL_CMD_RESET = 0x22,
 };
 
 enum class REPTYPE
@@ -43,7 +49,7 @@ enum class REPTYPE
     BSL_REP_VERIFY_ERROR = 0x8b,
     BSL_REP_NOT_VERIFY = 0x8c,
     BSL_REP_READ_FLASH = 0x93,
-    BSL_REP_UNKNOW = 0x96,
+    BSL_REP_INCOMPATIBLE_PARTITION = 0x96,
 };
 
 enum class CRC_MODLE
@@ -104,20 +110,28 @@ public:
 
     void newCheckBaud();
     void newConnect();
-    void newStartData(uint32_t addr, uint32_t len);
+    void newStartData(uint32_t addr, uint32_t len, uint32_t cs = 0);
+    void newStartData(const std::string &idstr, uint32_t len, uint32_t cs = 0);
     void newMidstData(uint8_t *buf, uint32_t len);
     void newEndData();
     void newExecData();
     void newNormalReset();
     void newReadFlash(uint32_t addr, uint32_t size, uint32_t offset = 0);
+
     /**
+     * old implements
      * set size = 0, let FDL1/FDL2 desides the partition size. usually erase a partition
      * in old implements, addr=0 && size=0xffffffff means erase all
      */
     void newEraseFlash(uint32_t addr, uint32_t size);
     void newErasePartition(uint32_t addr);
     void newEraseALL();
+    void newErasePartition(const std::string &partition);
+
     void newChangeBaud(BAUD);
+    void newReadPartition(const std::string &partition, uint32_t len);
+    void newReadPartitionSize(uint32_t rxsz, uint32_t total_rxsz);
+    void newEndReadPartition();
 };
 
 class Response
