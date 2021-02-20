@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-19 19:07:53
+ * @LastEditTime: 2021-02-20 17:48:14
  * @Description: file content
  */
 #include <iostream>
@@ -220,7 +220,6 @@ int Firmware::xmlparser_file(XMLNode *node)
         XMLNode *n = nullptr;
         const char *backup = "0";
 
-        info.reset();
         if (filenode->ToElement() && filenode->ToElement()->FirstAttribute())
             backup = filenode->ToElement()->FirstAttribute()->Value();
         info.isBackup = bool(CONSTCHARTOINT(backup));
@@ -235,10 +234,6 @@ int Firmware::xmlparser_file(XMLNode *node)
         idx = fileid_to_index(info.fileid);
         if (idx < 0)
             continue;
-
-        n = xmltree_find_node(filenode, "IDAlias");
-        if (n)
-            info.fileid_alias = n->FirstChild()->Value();
 
         n = xmltree_find_node(filenode, "Block");
         if (n && n->ToElement() && n->ToElement()->FirstAttribute())
@@ -264,8 +259,6 @@ int Firmware::xmlparser_file(XMLNode *node)
         if (n)
             info.checkflag = CONSTCHARTOINT(n->FirstChild()->Value());
 
-        info.isErase = (info.type == "EraseFlash2");
-
         info.realsize = file_size(idx);
         xmlfilevec.push_back(info);
         std::cerr << "idx: " << idx
@@ -279,10 +272,9 @@ int Firmware::xmlparser_file(XMLNode *node)
                   //   << ", Flag: " << info.flag
                   //   << ", CheckFlag: " << info.checkflag
                   << ", isBackup: " << info.isBackup
-                  << ", isErase: " << info.isErase
                   << std::dec << std::endl;
     }
-    std::cerr << __func__ << " farser file info end" << std::endl;
+    std::cerr << __func__ << " parser file info end" << std::endl;
 
     return 0;
 }
@@ -293,16 +285,15 @@ int Firmware::xmlparser_partition(XMLNode *partitions)
     {
         if (partition->ToElement() && partition->ToElement()->FirstAttribute())
         {
-            XMLNVInfo info;
+            partition_info info;
 
-            info.reset();
             for (auto a = partition->ToElement()->FirstAttribute(); a; a = a->Next())
             {
                 if (!a->Name())
                     continue;
 
                 if (std::string(a->Name()) == "id")
-                    info.blockid = a->Value();
+                    info.partition = a->Value();
                 else if (std::string(a->Name()) == "size" && a->Value())
                 {
                     if (std::string(a->Value()).substr(0, 2) == "0x" ||
@@ -312,10 +303,10 @@ int Firmware::xmlparser_partition(XMLNode *partitions)
                         info.size = CONSTCHARTOINT(a->Value());
                 }
 
-                if (!info.blockid.empty() && info.size)
+                if (!info.partition.empty() && info.size)
                 {
-                    xmlnvvec.push_back(info);
-                    std::cerr << "BlockID: " << info.blockid
+                    xmlpartitonvec.push_back(info);
+                    std::cerr << "BlockID: " << info.partition
                               << ", Size: " << info.size
                               << std::dec << std::endl;
                 }
@@ -323,7 +314,7 @@ int Firmware::xmlparser_partition(XMLNode *partitions)
         }
     }
 
-    std::cerr << __func__ << " farser partition info end" << std::endl;
+    std::cerr << __func__ << " parser partition info end" << std::endl;
     return 0;
 }
 
@@ -399,9 +390,9 @@ const std::vector<XMLFileInfo> &Firmware::get_file_vec() const
     return xmlfilevec;
 }
 
-const std::vector<XMLNVInfo> &Firmware::get_nv_vec() const
+const std::vector<partition_info> &Firmware::get_partition_vec() const
 {
-    return xmlnvvec;
+    return xmlpartitonvec;
 }
 
 bool Firmware::is_index_valid(int idx)

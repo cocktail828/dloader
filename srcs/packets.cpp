@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-19 17:50:03
+ * @LastEditTime: 2021-02-20 19:43:28
  * @Description: file content
  */
 #include <iostream>
@@ -12,17 +12,8 @@
 
 #include "packets.hpp"
 
-const static uint8_t MAGIC_7e = 0x7e;
-const static uint8_t MAGIC_7d = 0x7d;
-const static uint8_t MAGIC_5e = 0x5e;
-const static uint8_t MAGIC_5d = 0x5d;
-#define FRAMEHDR(p) (reinterpret_cast<cmd_header *>(p))
-#define FRAMEDATA(p, n, t) (reinterpret_cast<t *>(p + n))
-#define FRAMEDATAHDR(p) (p + sizeof(cmd_header))
-#define FRAMETAIL(p, n) (reinterpret_cast<cmd_tail *>(p + n))
-
 Request::Request()
-    : _reallen(0), crc_modle(CRC_MODLE::CRC_BOOTCODE)
+    : _reallen(0), crc_modle(CRC_MODLE::CRC_BOOTCODE), _argstr("")
 {
     _data = new (std::nothrow) uint8_t[MAX_DATA_LEN]();
 }
@@ -69,14 +60,14 @@ std::string Request::typestr()
         return "BSL_CMD_ERASE_FLASH";
     case REQTYPE::BSL_CMD_WRITE_PARTITION_TABLE:
         return "BSL_CMD_WRITE_PARTITION_TABLE";
-    case REQTYPE::BSL_CMD_READ_PARTITION:
-        return "BSL_CMD_READ_PARTITION";
+    case REQTYPE::BSL_CMD_START_READ_PARTITION:
+        return "BSL_CMD_START_READ_PARTITION";
     case REQTYPE::BSL_CMD_READ_PARTITION_SIZE:
         return "BSL_CMD_READ_PARTITION_SIZE";
     case REQTYPE::BSL_CMD_END_READ_PARTITION:
         return "BSL_CMD_END_READ_PARTITION";
-    case REQTYPE::BSL_CMD_START_READ_PARTITION:
-        return "BSL_CMD_START_READ_PARTITION";
+    case REQTYPE::BSL_CMD_EXEC_NAND_INIT:
+        return "BSL_CMD_EXEC_NAND_INIT";
     case REQTYPE::BSL_CMD_RESET:
         return "BSL_CMD_RESET";
     default:
@@ -84,25 +75,30 @@ std::string Request::typestr()
     }
 }
 
+std::string Request::argstr()
+{
+    return _argstr;
+}
+
 uint8_t *Request::data()
-{
-    return _data;
-}
-
-uint32_t Request::datalen()
-{
-    return _reallen;
-}
-
-uint8_t *Request::rawdata()
 {
     return _data + sizeof(cmd_header);
 }
 
-uint32_t Request::rawdatalen()
+uint32_t Request::datalen()
 {
     auto hdr = FRAMEHDR(_data);
     return be16toh(hdr->data_length);
+}
+
+uint8_t *Request::rawdata()
+{
+    return _data;
+}
+
+uint32_t Request::rawdatalen()
+{
+    return _reallen;
 }
 
 void Request::set_crc(CRC_MODLE mod)
@@ -218,54 +214,79 @@ void Request::reinit(REQTYPE req)
     hdr->data_length = 0;
 
     _reallen = sizeof(cmd_header);
+    _argstr = "";
 }
 
-void Request::finishup()
+uint32_t _num_escape(uint8_t *src, uint32_t len)
 {
     uint32_t magic_num = 0;
-    cmd_tail *tail = FRAMETAIL(_data, _reallen);
-
-    if (crc_modle == CRC_MODLE::CRC_BOOTCODE)
-        tail->crc16 = htobe16(crc16_bootcode(reinterpret_cast<char *>(_data + 1), _reallen - 1));
-    else if (crc_modle == CRC_MODLE::CRC_FDL)
-        tail->crc16 = htobe16(crc16_fdl(reinterpret_cast<uint16_t *>(_data + 1), (_reallen - 1)));
-
-    tail->magic = MAGIC_7e;
-    _reallen += sizeof(cmd_tail);
-
-    // do data escape
-    for (uint32_t pos = 1; pos < _reallen - 1; pos++)
+    for (uint32_t pos = 0; pos < len; pos++)
     {
-        if (_data[pos] == MAGIC_7e || _data[pos] == MAGIC_7d)
+        if (src[pos] == MAGIC_7e || src[pos] == MAGIC_7d)
             magic_num++;
     }
 
-    if (magic_num == 0)
-        return;
+    return magic_num;
+}
 
-    _reallen += magic_num;
-    _data[_reallen - 1] = MAGIC_7e;
-    for (uint32_t pos_l = _reallen - magic_num - 2, pos_r = _reallen - 2; pos_l > 1; pos_l--)
+void _do_escape(uint8_t *src, uint32_t srclen, uint32_t magic_num)
+{
+    for (uint32_t pos_l = srclen - 1, pos_r = srclen + magic_num - 1; pos_l >= 0; pos_l--)
     {
-        if (_data[pos_l] == MAGIC_7e)
+        if (src[pos_l] == MAGIC_7e)
         {
-            _data[pos_r--] = MAGIC_5e;
-            _data[pos_r--] = MAGIC_7d;
+            src[pos_r--] = MAGIC_5e;
+            src[pos_r--] = MAGIC_7d;
             magic_num--;
         }
-        else if (_data[pos_l] == MAGIC_7d)
+        else if (src[pos_l] == MAGIC_7d)
         {
-            _data[pos_r--] = MAGIC_5d;
-            _data[pos_r--] = MAGIC_7d;
+            src[pos_r--] = MAGIC_5d;
+            src[pos_r--] = MAGIC_7d;
             magic_num--;
         }
         else
         {
-            _data[pos_r--] = _data[pos_l];
+            src[pos_r--] = src[pos_l];
         }
 
         if (magic_num == 0)
             break;
+    }
+}
+
+void Request::finishup(bool escape_crc)
+{
+    uint16_t crc16 = 0;
+    uint32_t magic_num = 0;
+
+    if (crc_modle == CRC_MODLE::CRC_BOOTCODE)
+        crc16 = crc16_bootcode(reinterpret_cast<char *>(_data + 1), _reallen - 1);
+    else if (crc_modle == CRC_MODLE::CRC_FDL)
+        crc16 = crc16_fdl(reinterpret_cast<uint16_t *>(_data + 1), _reallen - 1);
+
+    if (escape_crc)
+    {
+        cmd_tail *tail = FRAMETAIL(_data, _reallen);
+        tail->crc16 = htobe16(crc16);
+        _reallen += sizeof(cmd_tail) - 1;
+    }
+
+    magic_num = _num_escape(_data + 1, _reallen - 1);
+    if (magic_num)
+        _do_escape(_data + 1, _reallen - 1, magic_num);
+
+    _reallen += magic_num;
+    if (escape_crc)
+    {
+        _data[_reallen++] = MAGIC_7e;
+    }
+    else
+    {
+        cmd_tail *tail = FRAMETAIL(_data, _reallen);
+        tail->crc16 = htobe16(crc16);
+        tail->magic = MAGIC_7e;
+        _reallen += sizeof(cmd_tail);
     }
 }
 
@@ -301,10 +322,25 @@ void Request::push_back(T val)
     hdr->data_length = htobe16(_reallen - sizeof(cmd_header));
 }
 
-void Request::newCheckBaud()
+template <>
+void Request::push_back(std::string val)
+{
+    uint32_t padlen = 0x48 - val.size() * 2;
+
+    for (auto ch : val)
+        push_back(htole16(ch));
+
+    for (; padlen > 0; padlen--)
+        push_back(uint8_t(0));
+
+    _argstr = val;
+}
+
+void Request::newCheckBaud(const std::string &arg)
 {
     _data[0] = 0x7e;
     _reallen = 1;
+    _argstr = arg;
 }
 
 void Request::newConnect()
@@ -313,7 +349,7 @@ void Request::newConnect()
     finishup();
 }
 
-void Request::newStartData(uint32_t addr, uint32_t len, uint32_t cs)
+void Request::newStartData(uint32_t addr, uint32_t len, uint32_t cs, const std::string &partition)
 {
     reinit(REQTYPE::BSL_CMD_START_DATA);
     push_back(htobe32(addr));
@@ -322,19 +358,14 @@ void Request::newStartData(uint32_t addr, uint32_t len, uint32_t cs)
         push_back(htobe32(cs));
 
     finishup();
+    _argstr = partition;
 }
 
 void Request::newStartData(const std::string &partition, uint32_t len, uint32_t cs)
 {
-    uint32_t padlen = 0x48 - partition.length() * 2;
     reinit(REQTYPE::BSL_CMD_START_DATA);
 
-    for (auto ch : partition)
-        push_back(htole16(ch));
-
-    for (; padlen > 0; padlen--)
-        push_back(uint8_t(0));
-
+    push_back(partition);
     push_back(htole32(len));
     if (cs)
         push_back(htole32(cs));
@@ -353,7 +384,6 @@ void Request::newMidstData(uint8_t *buf, uint32_t len)
 
     reinit(REQTYPE::BSL_CMD_MIDST_DATA);
 
-    // caculate rawdata's crc before escape
     std::copy(buf, buf + len, dataptr);
     hdr->data_length = htobe16(len);
     _reallen += len;
@@ -411,16 +441,25 @@ void Request::newEraseALL()
 
 void Request::newErasePartition(const std::string &partition)
 {
-    uint32_t padlen = 0x4c - partition.length() * 2;
-
     reinit(REQTYPE::BSL_CMD_ERASE_FLASH);
-    for (auto ch : partition)
-        push_back(htole16(ch));
-
-    for (; padlen > 0; padlen--)
-        push_back(uint8_t(0));
+    push_back(partition);
+    push_back(uint32_t(0));
 
     finishup();
+}
+
+void Request::newWritePartitionTable(const std::vector<partition_info> &table)
+{
+    reinit(REQTYPE::BSL_CMD_WRITE_PARTITION_TABLE);
+
+    for (auto iter = table.begin(); iter != table.end(); iter++)
+    {
+        push_back(iter->partition);
+        push_back(htole32(iter->size));
+    }
+
+    finishup();
+    _argstr = "";
 }
 
 void Request::newChangeBaud(BAUD baud)
@@ -430,17 +469,10 @@ void Request::newChangeBaud(BAUD baud)
     finishup();
 }
 
-void Request::newReadPartition(const std::string &partition, uint32_t len)
+void Request::newStartReadPartition(const std::string &partition, uint32_t len)
 {
-    uint32_t padlen = 0x48 - partition.length() * 2;
-
-    reinit(REQTYPE::BSL_CMD_READ_PARTITION);
-    for (auto ch : partition)
-        push_back(htole16(ch));
-
-    for (; padlen > 0; padlen--)
-        push_back(uint8_t(0));
-
+    reinit(REQTYPE::BSL_CMD_START_READ_PARTITION);
+    push_back(partition);
     push_back(htole32(len));
 
     finishup();
@@ -460,12 +492,18 @@ void Request::newEndReadPartition()
     finishup();
 }
 
+void Request::newExecNandInit()
+{
+    reinit(REQTYPE::BSL_CMD_EXEC_NAND_INIT);
+    finishup();
+}
+
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
-Response::Response()
+Response::Response() : _state(RESP_STATE::RESP_STATE_MALFORMED)
 {
     _data = new (std::nothrow) uint8_t[MAX_DATA_LEN]();
 }
@@ -527,31 +565,22 @@ std::string Response::typestr()
  * 7d 5e -> 7e
  * 7d 5d -> 7d
  */
-void Response::parser(uint8_t *d, uint32_t len)
+bool Response::parser(uint8_t *d, uint32_t len)
 {
-    _reallen = sizeof(cmd_header);
-    memcpy(_data, d, _reallen);
+    if (_state != RESP_STATE::RESP_STATE_INCOMPLETE)
+        _reallen = 0;
 
-    for (int pos = _reallen; pos < len - sizeof(cmd_tail); pos++)
-    {
-        if (d[pos] == MAGIC_7d && d[pos + 1] == MAGIC_5e)
-        {
-            _data[_reallen++] = MAGIC_7e;
-            pos++;
-        }
-        else if (d[pos] == MAGIC_7d && d[pos] == MAGIC_5d)
-        {
-            _data[_reallen++] = MAGIC_7d;
-            pos++;
-        }
-        else
-        {
-            _data[_reallen++] = d[pos];
-        }
-    }
+    std::copy(d, d + len, _data + _reallen);
+    _reallen += len;
 
-    memcpy(_data + _reallen, d + len - sizeof(cmd_tail), sizeof(cmd_tail));
-    _reallen += sizeof(cmd_tail);
+    if (_data[0] != MAGIC_7e)
+        _state = RESP_STATE::RESP_STATE_MALFORMED;
+    else if (_data[_reallen - 1] != MAGIC_7e)
+        _state = RESP_STATE::RESP_STATE_INCOMPLETE;
+    else // FIXME: check crc16
+        _state = RESP_STATE::RESP_STATE_OK;
+
+    return _state != RESP_STATE::RESP_STATE_INCOMPLETE;
 }
 
 void Response::reset()
@@ -562,21 +591,21 @@ void Response::reset()
 
 uint8_t *Response::data()
 {
-    return _data;
+    return _data + sizeof(cmd_header);
 }
 
 uint32_t Response::datalen()
 {
-    return _reallen;
+    auto hdr = FRAMEHDR(_data);
+    return be16toh(hdr->data_length);
 }
 
 uint8_t *Response::rawdata()
 {
-    return _data + sizeof(cmd_header);
+    return _data;
 }
 
 uint32_t Response::rawdatalen()
 {
-    auto hdr = FRAMEHDR(_data);
-    return be16toh(hdr->data_length);
+    return _reallen;
 }

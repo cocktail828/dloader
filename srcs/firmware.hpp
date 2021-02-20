@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-19 18:08:38
+ * @LastEditTime: 2021-02-20 17:24:12
  * @Description: file content
  */
 #ifndef __FIRMWARE__
@@ -14,6 +14,8 @@
 #include <vector>
 
 #include "../third-party/tinyxml2/tinyxml2.h"
+
+#include "packets.hpp"
 
 struct pac_header_t
 {
@@ -65,35 +67,19 @@ struct bin_header_t
 struct XMLFileInfo
 {
     std::string fileid;
-    std::string fileid_alias;
     std::string blockid;
     std::string type;
+    std::string fpath;
     uint32_t base;
     uint32_t size;
     uint32_t realsize;
     uint32_t flag;
     uint32_t checkflag;
     bool isBackup;
-    bool isErase;
 
-    void reset()
-    {
-        fileid = fileid_alias = blockid = type = "";
-        base = size = realsize = flag = checkflag = 0;
-        isBackup = isErase = false;
-    }
-};
-
-struct XMLNVInfo
-{
-    std::string blockid;
-
-    uint32_t size;
-    void reset()
-    {
-        blockid = "";
-        size = 0;
-    }
+    XMLFileInfo() : fileid(""), blockid(""), type(""),
+                    base(0), size(0), realsize(0), flag(0), checkflag(0),
+                    isBackup(false) {}
 };
 
 class Firmware
@@ -103,7 +89,7 @@ private:
     pac_header_t *pachdr;
     bin_header_t *binhdr;
     std::vector<XMLFileInfo> xmlfilevec;
-    std::vector<XMLNVInfo> xmlnvvec;
+    std::vector<partition_info> xmlpartitonvec;
 
 private:
     tinyxml2::XMLNode *xmltree_find_node(tinyxml2::XMLNode *, const std::string &);
@@ -137,7 +123,7 @@ public:
 
     int xmlparser();
     const std::vector<XMLFileInfo> &get_file_vec() const;
-    const std::vector<XMLNVInfo> &get_nv_vec() const;
+    const std::vector<partition_info> &get_partition_vec() const;
 
     bool get_data(const std::string &idstr, size_t offset, uint8_t *buf, uint32_t sz);
 };

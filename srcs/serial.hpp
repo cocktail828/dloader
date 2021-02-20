@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:19
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-10 14:41:48
+ * @LastEditTime: 2021-02-20 15:11:39
  * @Description: file content
  */
 #ifndef __SERIAL__
@@ -40,6 +40,10 @@ enum class BAUD
 
 #define _VAL(v) v
 static int BaudARR[] = {_VALUES};
+#undef _VAL
+
+#define _VAL(v) #v
+static const char *BaudARRSTR[] = {_VALUES};
 #undef _VAL
 
 class SerialPort

@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:41:38
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-19 14:26:42
+ * @LastEditTime: 2021-02-20 15:02:55
  * @Description: file content
  */
 
@@ -75,7 +75,6 @@ void SerialPort::setBaud(BAUD baud)
     struct termios tio;
     struct termios settings;
 
-    std::cerr << "serial set baud " << std::dec << BaudARR[static_cast<int>(baud)] << std::endl;
     memset(&tio, 0, sizeof(tio));
     tio.c_iflag = 0;
     tio.c_oflag = 0;
