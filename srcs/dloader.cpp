@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 12:21:12
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-22 14:09:54
+ * @LastEditTime: 2021-02-23 14:24:28
  * @Description: file content
  */
 #include <iostream>
@@ -38,10 +38,13 @@ void usage(const char *prog)
 {
     cerr << prog << " version " << VERSION_STR << endl;
     cerr << prog << " [config] [options]" << endl;
-    cerr << "    -f pac_file     firmware file, with suffix of '.pac'" << endl;
-    cerr << "    -d device       device, can be a tty device" << endl;
-    cerr << "    -x pac_file     exract pac_file only" << endl;
-    cerr << "    -h              help message" << endl;
+    cerr << "    -f pac_file           firmware file, with suffix of '.pac'" << endl;
+    cerr << "    -d device             tty device, example(/dev/ttyUSB0)" << endl;
+    cerr << "    -p usb port           usb port, it's port string, see '-l' for details" << endl;
+    cerr << "    -x pac_file [dir]     exract pac_file only" << endl;
+    cerr << "    -c chip_set           udx710(5g) or u8910(4g)" << endl;
+    cerr << "    -l                    list devices" << endl;
+    cerr << "    -h                    help message" << endl;
 }
 
 /**
@@ -104,7 +107,7 @@ void auto_find_dev(const string &port)
             iter->use_flag = true;
 
             config.device = d.empty() ? "" : ("/dev/" + d);
-            config.mname = iter->name;
+            config.chipset = iter->chipset;
             return;
         }
         cerr << "find no support device" << endl;
@@ -142,7 +145,7 @@ void load_config(const string &conf)
             char ifstr[32];
             char chipstr[32];
             sscanf(val.c_str(), "%[^:]:%[^,],%[^,],%s", phy, idstr, ifstr, chipstr);
-            config.devs.emplace_back(supp_dev{
+            config.devs.emplace_back(support_dev{
                 false,
                 phy,
                 idstr,
@@ -179,6 +182,7 @@ int main(int argc, char **argv)
 {
     int opt;
     string config_path;
+    bool flag_list_device = false;
 
     if (argc > 1 && argv[1][0] != '-')
     {
@@ -189,12 +193,28 @@ int main(int argc, char **argv)
 
     load_config(config_path.empty() ? DEFAULT_CONFIG : config_path);
 
-    while ((opt = getopt(argc, argv, "hf:x:")) > 0)
+    while ((opt = getopt(argc, argv, "hf:x:p:ld:c:")) > 0)
     {
         switch (opt)
         {
         case 'f':
             config.pac_path = optarg;
+            break;
+
+        case 'd':
+            config.device = optarg;
+            break;
+
+        case 'c':
+            config.chipset = optarg;
+            break;
+
+        case 'p':
+            config.usb_physical_port = optarg;
+            break;
+
+        case 'l':
+            flag_list_device = true;
             break;
 
         case 'x':
@@ -216,19 +236,27 @@ int main(int argc, char **argv)
         }
     }
 
+    if (flag_list_device)
+    {
+        Device dev;
+        dev.scan(config.usb_physical_port);
+        return 0;
+    }
+
     if (!config.pac_path.empty() && is_dir(config.pac_path))
         auto_find_pac(config.pac_path);
 
-    auto_find_dev(config.usb_physical_port);
+    if (config.device.empty())
+        auto_find_dev(config.usb_physical_port);
 
     cerr << "choose device: " << config.device << endl;
     cerr << "choose pac: " << config.pac_path << endl;
-    cerr << "chip series is: " << config.mname << endl;
-    if (!config.mname.empty() &&
+    cerr << "chip series is: " << config.chipset << endl;
+    if (!config.chipset.empty() &&
         !config.device.empty() && !access(config.device.c_str(), F_OK) &&
         !config.pac_path.empty() && !access(config.device.c_str(), F_OK))
-        return do_update(config.mname);
+        return do_update(config.chipset);
 
-    cerr << "find no support device" << endl;
+    cerr << "find no support device or no pac file" << endl;
     return -1;
 }
