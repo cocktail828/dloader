@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-20 17:24:12
+ * @LastEditTime: 2021-02-23 13:36:06
  * @Description: file content
  */
 #ifndef __FIRMWARE__
@@ -75,11 +75,14 @@ struct XMLFileInfo
     uint32_t realsize;
     uint32_t flag;
     uint32_t checkflag;
+    uint32_t checksum;
+    uint16_t crc16;
+    bool use_pac_file;
     bool isBackup;
 
     XMLFileInfo() : fileid(""), blockid(""), type(""),
                     base(0), size(0), realsize(0), flag(0), checkflag(0),
-                    isBackup(false) {}
+                    checksum(0), crc16(0), use_pac_file(true), isBackup(false) {}
 };
 
 class Firmware
@@ -116,16 +119,20 @@ public:
 
     // xml has a empty fileid, that is ""
     int fileid_to_index(const std::string &idstr);
-    size_t file_size(int idx);
-    size_t file_size(const std::string &idstr);
-    size_t file_offset(int idx);
-    size_t file_offset(const std::string &idstr);
+    size_t member_file_size(int idx);
+    size_t member_file_size(const std::string &idstr);
+    size_t member_file_offset(int idx);
+    size_t member_file_offset(const std::string &idstr);
 
     int xmlparser();
     const std::vector<XMLFileInfo> &get_file_vec() const;
     const std::vector<partition_info> &get_partition_vec() const;
 
-    bool get_data(const std::string &idstr, size_t offset, uint8_t *buf, uint32_t sz);
+    std::ifstream open_pac(const std::string &idstr);
+    std::ifstream open_file(const std::string &fpath);
+    void close(std::ifstream &fin);
+    bool read(std::ifstream &fin, uint8_t *buf, uint32_t sz);
+    uint32_t local_file_size(const std::string &fpath);
 };
 
 #endif //__FIRMWARE__

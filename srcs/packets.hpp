@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-20 19:43:37
+ * @LastEditTime: 2021-02-23 12:43:03
  * @Description: file content
  */
 #ifndef __PACKETS__
@@ -92,19 +92,21 @@ struct partition_info
 };
 
 // NOTICE: make sure it not less than data len in Midst message
-#define MAX_DATA_LEN 0x3300
+#define MAX_DATA_LEN 0x4000
 
 class Request final
 {
 private:
     uint8_t *_data;
-    uint16_t _reallen;
+    uint32_t _reallen;
     CRC_MODLE crc_modle;
+    bool crc_escape_flag;
+    bool data_escape_flag;
     std::string _argstr;
 
 private:
     void reinit(REQTYPE);
-    void finishup(bool escape_crc = true);
+    void finishup();
 
     template <typename T>
     void push_back(T);
@@ -122,10 +124,11 @@ public:
     uint8_t *rawdata();
     uint32_t rawdatalen();
 
+    void set_escape_flag(bool data_escape_flag, bool crc_escape_flag);
     void set_crc(CRC_MODLE);
-    uint16_t crc16_bootcode(char *src, uint32_t len);
-    uint16_t crc16_fdl(uint16_t *src, uint32_t len);
-    uint16_t crc16_nv(uint16_t crc, uint8_t *src, uint32_t len);
+    uint16_t crc16_bootcode(const char *src, uint32_t len);
+    uint16_t crc16_fdl(const uint16_t *src, uint32_t len);
+    uint16_t crc16_nv(uint16_t crc, const uint8_t *src, uint32_t len);
 
     void newCheckBaud(const std::string &arg);
     void newConnect();
@@ -151,7 +154,7 @@ public:
 
     void newChangeBaud(BAUD);
     void newStartReadPartition(const std::string &partition, uint32_t len);
-    void newReadPartitionSize(uint32_t rxsz, uint32_t total_rxsz);
+    void newReadPartitionSize(uint32_t rxsz, uint32_t offset);
     void newEndReadPartition();
     void newExecNandInit();
 };
@@ -174,7 +177,7 @@ class Response
 {
 private:
     uint8_t *_data;
-    uint16_t _reallen;
+    uint32_t _reallen;
     RESP_STATE _state;
 
 public:
@@ -185,8 +188,8 @@ public:
     std::string typestr();
 
     void reset();
-    bool parser(uint8_t *d, uint32_t len);
 
+    RESP_STATE push_back(uint8_t *d, uint32_t len);
     uint8_t *data();
     uint32_t datalen();
     uint8_t *rawdata();

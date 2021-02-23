@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:36:51
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-20 19:46:34
+ * @LastEditTime: 2021-02-23 13:56:51
  * @Description: file content
  */
 
@@ -33,10 +33,15 @@ UpgradeManager::UpgradeManager(const std::string &tty,
                                const std::string &pac)
     : serial(tty), firmware(pac), pac(pac)
 {
+    int maxlen = FRAMESZ_DATA > FRAMESZ_FDL ? FRAMESZ_DATA : FRAMESZ_FDL;
+    _data = new (std::nothrow) uint8_t[maxlen];
 }
 
 UpgradeManager::~UpgradeManager()
 {
+    if (_data)
+        delete[] _data;
+    _data = nullptr;
 }
 
 bool UpgradeManager::prepare()
@@ -61,11 +66,11 @@ void UpgradeManager::hexdump(bool isreq, uint8_t *buf, uint32_t sz)
                  isreq ? req.typestr().c_str() : resp.typestr().c_str(),
                  isreq ? req.argstr().c_str() : "", sz);
 
-        for (int i = 0; i < sz && i < 32; i++)
+        for (int i = 0; i < sz && i < 20; i++)
             snprintf(reinterpret_cast<char *>(_buff) + strlen(_buff),
                      sizeof(_buff), "%02x ", buf[i]);
 
-        if (sz >= 32)
+        if (sz >= 20)
             snprintf(reinterpret_cast<char *>(_buff) + strlen(_buff),
                      sizeof(_buff), "... %02x %02x %02x %02x %02x",
                      buf[sz - 5], buf[sz - 4], buf[sz - 3], buf[sz - 2], buf[sz - 1]);
@@ -74,30 +79,30 @@ void UpgradeManager::hexdump(bool isreq, uint8_t *buf, uint32_t sz)
     else
     {
         static REQTYPE pre_reqtype = REQTYPE::BSL_CMD_CHECK_BAUD;
-        auto REQ_CAN_SKIP0 = REQTYPE::BSL_CMD_MIDST_DATA;
-        auto REQ_CAN_SKIP1 = REQTYPE::BSL_CMD_READ_PARTITION_SIZE;
-        auto REP_CAN_SKIP0 = REPTYPE::BSL_REP_ACK;
-        auto REP_CAN_SKIP1 = REPTYPE::BSL_REP_READ_FLASH;
 
-        if ((pre_reqtype == REQ_CAN_SKIP0 || pre_reqtype == REQ_CAN_SKIP1) &&
-            isreq && req.type() == pre_reqtype)
+        if (isreq && pre_reqtype == REQTYPE::BSL_CMD_MIDST_DATA && req.type() == pre_reqtype)
         {
             std::cerr << ">";
             return;
         }
-        else if ((pre_reqtype == REQ_CAN_SKIP0 || pre_reqtype == REQ_CAN_SKIP1) &&
-                 !isreq && (resp.type() == REP_CAN_SKIP0 || resp.type() == REP_CAN_SKIP1))
+
+        if (isreq && pre_reqtype == REQTYPE::BSL_CMD_READ_PARTITION_SIZE && req.type() == pre_reqtype)
         {
             std::cerr << "<";
             return;
         }
 
-        if (pre_reqtype == REQ_CAN_SKIP0 || pre_reqtype == REQ_CAN_SKIP1)
+        if (!isreq && (pre_reqtype == REQTYPE::BSL_CMD_MIDST_DATA || pre_reqtype == REQTYPE::BSL_CMD_READ_PARTITION_SIZE) &&
+            (resp.type() == REPTYPE::BSL_REP_ACK || resp.type() == REPTYPE::BSL_REP_READ_FLASH))
+            return;
+
+        if (pre_reqtype == REQTYPE::BSL_CMD_MIDST_DATA || pre_reqtype == REQTYPE::BSL_CMD_READ_PARTITION_SIZE)
             std::cerr << std::endl;
 
         snprintf(reinterpret_cast<char *>(_buff) + strlen(_buff),
-                 sizeof(_buff), "%s %s %s", isreq ? ">>>" : "<<<",
+                 sizeof(_buff), "%s %s(0x%02x) %s", isreq ? ">>>" : "<<<",
                  isreq ? req.typestr().c_str() : resp.typestr().c_str(),
+                 isreq ? static_cast<int>(req.type()) : static_cast<int>(resp.type()),
                  isreq ? req.argstr().c_str() : "");
 
         std::cerr << _buff << std::endl;
@@ -111,10 +116,11 @@ bool UpgradeManager::talk(int timeout)
     int remainlen = 0;
     if (req.type() == REQTYPE::BSL_CMD_READ_PARTITION_SIZE)
     {
-        auto hdr = FRAMEHDR(req.rawdata());
-        remainlen = be16toh(hdr->data_length);
+        remainlen = le32toh(*reinterpret_cast<uint32_t *>(req.rawdata() + sizeof(cmd_header))) +
+                    sizeof(cmd_header) + sizeof(cmd_tail);
     }
 
+    resp.reset();
     hexdump(true, req.rawdata(), req.rawdatalen());
     if (!serial.sendSync(req.rawdata(), req.rawdatalen()))
     {
@@ -126,15 +132,12 @@ bool UpgradeManager::talk(int timeout)
     {
         if (!serial.recvSync(timeout))
         {
-            resp.reset();
             std::cerr << "recvSync failed, req=" << req.typestr() << std::endl;
             return false;
         }
-
+        resp.push_back(serial.data(), serial.datalen());
         remainlen -= static_cast<int>(serial.datalen());
     } while (remainlen > 0);
-
-    resp.parser(serial.data(), serial.datalen());
     hexdump(false, resp.rawdata(), resp.rawdatalen());
 
     return true;
@@ -177,21 +180,23 @@ _exit:
 
 int UpgradeManager::transfer(const XMLFileInfo &info, uint32_t maxlen, bool isfdl)
 {
-    uint32_t filesz = firmware.file_size(info.fileid);
-    size_t offset = 0;
-    uint8_t *buffer = new (std::nothrow) uint8_t[maxlen];
+    uint32_t filesz = info.use_pac_file ? firmware.member_file_size(info.fileid)
+                                        : firmware.local_file_size(info.fpath);
+    std::ifstream fin = info.use_pac_file ? firmware.open_pac(info.fileid)
+                                          : firmware.open_file(info.fpath);
+
+    bool nv_replace_byte = false;
 
     ON_SCOPE_EXIT
     {
-        if (buffer)
-            delete[] buffer;
-        buffer = nullptr;
+        if (fin.is_open())
+            fin.close();
     };
 
     if (isfdl)
         req.newStartData(info.base, info.realsize);
     else
-        req.newStartData(info.blockid, info.realsize);
+        req.newStartData(info.blockid, info.realsize, info.checksum);
 
     if (!talk() || resp.type() != REPTYPE::BSL_REP_ACK)
         goto _exit;
@@ -199,17 +204,24 @@ int UpgradeManager::transfer(const XMLFileInfo &info, uint32_t maxlen, bool isfd
     do
     {
         uint32_t txlen = (filesz > maxlen) ? maxlen : filesz;
-        firmware.get_data(info.fileid, offset, buffer, txlen);
-        req.newMidstData(buffer, txlen);
+        firmware.read(fin, _data, txlen);
+        if (!nv_replace_byte && info.crc16)
+        {
+            *reinterpret_cast<uint16_t *>(_data) = htobe16(info.crc16);
+            nv_replace_byte = true;
+        }
+
+        req.newMidstData(_data, txlen);
         if (!talk() || resp.type() != REPTYPE::BSL_REP_ACK)
             goto _exit;
 
         filesz -= txlen;
-        offset += txlen;
     } while (filesz > 0);
+    firmware.close(fin);
 
+    // this operation may take much more time, so set a much longger timeout
     req.newEndData();
-    if (!talk() || resp.type() != REPTYPE::BSL_REP_ACK)
+    if (!talk(30000) || resp.type() != REPTYPE::BSL_REP_ACK)
         goto _exit;
 
     return 0;
@@ -233,6 +245,35 @@ int UpgradeManager::exec()
     return 0;
 }
 
+// NV should be processed specially
+void UpgradeManager::checksum(XMLFileInfo &info)
+{
+    auto fin = firmware.open_pac(info.fileid);
+    uint32_t fsz = firmware.member_file_size(info.fileid);
+    uint16_t crc = 0;
+    uint32_t cs = 0;
+
+    firmware.read(fin, _data, 2);
+    fsz -= 2;
+    do
+    {
+        uint32_t sz = (fsz > 4096) ? 4096 : fsz;
+        firmware.read(fin, _data, sz);
+        crc = req.crc16_nv(crc, _data, sz);
+
+        for (auto i = 0; i < sz; i++)
+            cs += _data[i];
+
+        fsz -= sz;
+    } while (fsz > 0);
+    firmware.close(fin);
+
+    cs += (crc & 0xff);
+    cs += (crc & 0xff00) >> 8;
+    info.checksum = cs;
+    info.crc16 = crc;
+}
+
 std::string get_real_path(const std::string &pac)
 {
     std::string fpath = ".";
@@ -249,6 +290,8 @@ int UpgradeManager::backup_partition(XMLFileInfo &info)
     std::string name = get_real_path(pac) + "/" + info.blockid + ".bak";
     std::ofstream fout(name, std::ios::trunc);
 
+    req.set_crc(CRC_MODLE::CRC_FDL);
+    req.set_escape_flag(false, false);
     if (!fout.is_open())
     {
         std::cerr << __func__ << " cannot backup partition " << info.blockid
@@ -285,6 +328,7 @@ int UpgradeManager::backup_partition(XMLFileInfo &info)
 
     return 0;
 _exit:
+    std::cerr << __func__ << " fail to backup " << info.blockid << std::endl;
     return -1;
 }
 
@@ -293,6 +337,7 @@ int UpgradeManager::flash_fdl(const XMLFileInfo &info, bool isbootcode)
     int ret;
 
     req.set_crc(isbootcode ? CRC_MODLE::CRC_BOOTCODE : CRC_MODLE::CRC_FDL);
+    req.set_escape_flag(true, true);
     if (connect())
         goto _exit;
 
@@ -305,42 +350,39 @@ int UpgradeManager::flash_fdl(const XMLFileInfo &info, bool isbootcode)
 
     if (!ret || resp.type() == REPTYPE::BSL_REP_INCOMPATIBLE_PARTITION)
     {
-        auto table = firmware.get_partition_vec();
-        if (table.empty())
-        {
-            std::cerr << __func__ << " failed for empty vector" << std::endl;
-            return -1;
-        }
-
         req.newExecNandInit();
-        if (!talk() || resp.type() != REPTYPE::BSL_REP_ACK)
-            goto _exit;
-
-        req.newWritePartitionTable(table);
         if (!talk() || resp.type() != REPTYPE::BSL_REP_ACK)
             goto _exit;
     }
     return 0;
 
 _exit:
+    std::cerr << __func__ << " fail to flash " << info.fileid << std::endl;
     return -1;
 }
 
 int UpgradeManager::flash_partition(const XMLFileInfo &info)
 {
+    req.set_crc(CRC_MODLE::CRC_FDL);
+    req.set_escape_flag(false, false);
+
     return transfer(info, FRAMESZ_DATA, false);
 }
 
 int UpgradeManager::erase_partition(const XMLFileInfo &info)
 {
+    req.set_crc(CRC_MODLE::CRC_FDL);
+    req.set_escape_flag(false, false);
+
     req.newErasePartition(info.blockid);
     return (talk() && resp.type() == REPTYPE::BSL_REP_ACK) ? 0 : -1;
 }
 
 int UpgradeManager::upgrade_udx710(bool backup)
 {
+    auto table = firmware.get_partition_vec();
     auto filevec = firmware.get_file_vec();
-    if (filevec.empty())
+    if (filevec.empty() || table.empty())
     {
         std::cerr << __func__ << " failed for empty vector" << std::endl;
         return -1;
@@ -349,9 +391,6 @@ int UpgradeManager::upgrade_udx710(bool backup)
     // FDL
     for (auto iter = filevec.begin(); iter != filevec.end(); iter++)
     {
-        if (iter->isBackup)
-            continue;
-
         if (string_case_cmp(iter->fileid, "FDL"))
         {
             if (flash_fdl(*iter, true))
@@ -364,17 +403,29 @@ int UpgradeManager::upgrade_udx710(bool backup)
         }
     }
 
-    // Backup
-    for (auto iter = filevec.begin(); iter != filevec.end(); iter++)
+    // Bakeup
+    if (backup)
     {
-        if (iter->isBackup)
-            if (backup_partition(*iter))
-                return -1;
+        for (auto iter = filevec.begin(); iter != filevec.end(); iter++)
+        {
+            if (iter->isBackup)
+            {
+                if (iter->isBackup)
+                    if (backup_partition(*iter))
+                        return -1;
+            }
+        }
     }
 
+    // update partition table
+    req.newWritePartitionTable(table);
+    if (!talk() || resp.type() != REPTYPE::BSL_REP_ACK)
+        return -1;
+
+    // do update
     for (auto iter = filevec.begin(); iter != filevec.end(); iter++)
     {
-        if (iter->isBackup || string_case_cmp(iter->fileid, "FDL") ||
+        if (string_case_cmp(iter->fileid, "FDL") ||
             string_case_cmp(iter->fileid, "FDL2"))
             continue;
 
@@ -385,6 +436,20 @@ int UpgradeManager::upgrade_udx710(bool backup)
         }
         else
         {
+            iter->use_pac_file = true;
+            // the two partition is special. we should not change it
+            if (string_case_cmp(iter->fileid, "ProdNV") ||
+                string_case_cmp(iter->fileid, "PhaseCheck"))
+            {
+                std::cerr << __func__ << " skip flashing " << iter->fileid
+                          << "(" << iter->blockid << ")"
+                          << " via " << iter->fpath << std::endl;
+                continue;
+            }
+
+            if (string_case_cmp(iter->fileid, "NV_NR"))
+                checksum(*iter);
+
             if (flash_partition(*iter))
                 return -1;
         }

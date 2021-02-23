@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:41:38
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-20 15:02:55
+ * @LastEditTime: 2021-02-23 08:49:28
  * @Description: file content
  */
 
@@ -93,20 +93,35 @@ void SerialPort::setBaud(BAUD baud)
     tcsetattr(ttyfd, TCSANOW, &settings);
 }
 
-bool SerialPort::sendSync(uint8_t *data, uint16_t len)
+bool SerialPort::sendSync(uint8_t *data, uint32_t len)
 {
-    ssize_t ret = write(ttyfd, data, len);
+    uint32_t txsz = 0;
 
-    if (ret <= 0)
+    do
     {
-        std::cerr << "write data failed for " << strerror(errno) << std::endl;
-        return false;
-    }
+        ssize_t ret = write(ttyfd, data + txsz, len - txsz);
+        if (ret >= 0)
+            txsz += ret;
 
-    if (ret != len)
+        if (ret < 0)
+        {
+            if (errno == EAGAIN)
+            {
+                usleep(100);
+                continue;
+            }
+            else
+            {
+                break;
+            }
+        }
+    } while (txsz < len);
+
+    if (txsz != len)
     {
-        std::cerr << "write data implement, write "
-                  << std::dec << ret << "/" << len << " bytes" << std::endl;
+        std::cerr << "write data failed, write "
+                  << std::dec << txsz << "/" << len
+                  << " bytes, for " << strerror(errno) << std::endl;
         return false;
     }
 
@@ -119,6 +134,7 @@ bool SerialPort::recvSync(uint32_t timeout)
     int num = epoll_wait(epfd, events, 10, timeout);
     if (num > 0)
     {
+        bufsize = 0;
         for (int i = 0; i < num; i++)
         {
             // serial closed?
@@ -141,13 +157,16 @@ bool SerialPort::recvSync(uint32_t timeout)
             }
         }
     }
+
     if (num == 0)
     {
-        std::cerr << "epoll timeout" << std::endl;
+        bufsize = 0;
+        std::cerr << "epoll timeout(" << timeout << "ms)" << std::endl;
         return false;
     }
     else
     {
+        bufsize = 0;
         std::cerr << "epoll fail for " << strerror(errno) << std::endl;
         return false;
     }
@@ -158,7 +177,7 @@ uint8_t *SerialPort::data()
     return buffer;
 }
 
-uint16_t SerialPort::datalen()
+uint32_t SerialPort::datalen()
 {
     return bufsize;
 }

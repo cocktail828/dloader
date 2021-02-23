@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-20 17:48:14
+ * @LastEditTime: 2021-02-23 10:54:07
  * @Description: file content
  */
 #include <iostream>
@@ -130,7 +130,7 @@ int Firmware::unpack(int idx, const std::string &extdir)
             fout.close();
     };
 
-    filesz = file_size(idx);
+    filesz = member_file_size(idx);
     fpath = extdir + "/" + WCHARSTR(binhdr[idx].szFileName);
     if (filesz == 0)
         return 0;
@@ -145,7 +145,7 @@ int Firmware::unpack(int idx, const std::string &extdir)
         return -1;
     }
 
-    fin.seekg(file_offset(idx), std::ios::beg);
+    fin.seekg(member_file_offset(idx), std::ios::beg);
     while (filesz > 0)
     {
         size_t sz = filesz > sizeof(buff) ? sizeof(buff) : filesz;
@@ -259,7 +259,7 @@ int Firmware::xmlparser_file(XMLNode *node)
         if (n)
             info.checkflag = CONSTCHARTOINT(n->FirstChild()->Value());
 
-        info.realsize = file_size(idx);
+        info.realsize = member_file_size(idx);
         xmlfilevec.push_back(info);
         std::cerr << "idx: " << idx
                   << ", FILEID: " << info.fileid
@@ -353,8 +353,8 @@ int Firmware::xmlparser()
         size_t fileoffset = 0;
         std::ifstream fin(pac_file);
 
-        filesz = file_size(xmlidx);
-        fileoffset = file_offset(xmlidx);
+        filesz = member_file_size(xmlidx);
+        fileoffset = member_file_offset(xmlidx);
         xmlbuf = new (std::nothrow) char[filesz + 1]();
         memset(xmlbuf, 0, filesz + 1);
 
@@ -416,7 +416,7 @@ int Firmware::fileid_to_index(const std::string &idstr)
     return -1;
 }
 
-size_t Firmware::file_size(int idx)
+size_t Firmware::member_file_size(int idx)
 {
     if (!is_index_valid(idx))
     {
@@ -427,12 +427,12 @@ size_t Firmware::file_size(int idx)
     return binhdr[idx].dwLoFileSize;
 }
 
-size_t Firmware::file_size(const std::string &idstr)
+size_t Firmware::member_file_size(const std::string &idstr)
 {
-    return file_size(fileid_to_index(idstr));
+    return member_file_size(fileid_to_index(idstr));
 }
 
-size_t Firmware::file_offset(int idx)
+size_t Firmware::member_file_offset(int idx)
 {
     size_t offset = sizeof(pac_header_t) + sizeof(bin_header_t) * pachdr->nFileCount;
     if (!is_index_valid(idx))
@@ -451,31 +451,59 @@ size_t Firmware::file_offset(int idx)
     return offset;
 }
 
-size_t Firmware::file_offset(const std::string &idstr)
+size_t Firmware::member_file_offset(const std::string &idstr)
 {
-    return file_offset(fileid_to_index(idstr));
+    return member_file_offset(fileid_to_index(idstr));
 }
 
-bool Firmware::get_data(const std::string &idstr, size_t offset, uint8_t *buf, uint32_t sz)
+std::ifstream Firmware::open_pac(const std::string &idstr)
 {
     std::ifstream fin(pac_file, std::ios::binary);
     int idx = fileid_to_index(idstr);
     if (!is_index_valid(idx))
     {
+        fin.close();
         std::cerr << __func__ << " invalid index error" << std::endl;
-        return false;
     }
 
+    fin.seekg(member_file_offset(idx), std::ios::beg);
+    return fin;
+}
+
+std::ifstream Firmware::open_file(const std::string &fpath)
+{
+    std::ifstream fin(pac_file, std::ios::binary);
+
+    return fin;
+}
+
+void Firmware::close(std::ifstream &fin)
+{
+    if (fin.is_open())
+        fin.close();
+}
+
+bool Firmware::read(std::ifstream &fin, uint8_t *buf, uint32_t sz)
+{
     if (!fin.is_open())
     {
-        std::cerr << "fail to open " << pac_file << std::endl;
+        std::cerr << __func__ << " pac file is not open" << std::endl;
         return false;
     }
 
-    fin.seekg(file_offset(idx) + offset, std::ios::beg);
     fin.read(reinterpret_cast<char *>(buf), sz);
 
+    return true;
+}
+
+uint32_t Firmware::local_file_size(const std::string &fpath)
+{
+    uint32_t sz = 0;
+    std::ifstream fin(fpath, std::ios::binary);
+
+    fin.seekg(0, std::ios::end);
+    sz = fin.tellg();
     fin.close();
 
-    return true;
+    return sz;
 }

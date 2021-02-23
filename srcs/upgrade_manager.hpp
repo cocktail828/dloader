@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:33
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-20 17:31:48
+ * @LastEditTime: 2021-02-23 13:39:34
  * @Description: file content
  */
 #ifndef __UPDATE__
@@ -29,6 +29,7 @@ private:
     Request req;
     Firmware firmware;
     std::string pac;
+    uint8_t *_data;
 
 private:
     void hexdump(bool isreq, uint8_t *buf, uint32_t sz);
@@ -36,6 +37,7 @@ private:
     int connect();
     int transfer(const XMLFileInfo &info, uint32_t maxlen, bool isfdl = false);
     int exec();
+    void checksum(XMLFileInfo &info);
 
 public:
     UpgradeManager(const std::string &tty, const std::string &pac);

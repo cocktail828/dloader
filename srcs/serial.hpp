@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:19
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-20 15:11:39
+ * @LastEditTime: 2021-02-23 08:48:58
  * @Description: file content
  */
 #ifndef __SERIAL__
@@ -63,11 +63,11 @@ public:
     bool isOpened();
     void setBaud(BAUD baud);
 
-    bool sendSync(uint8_t *data, uint16_t len);
+    bool sendSync(uint8_t *data, uint32_t len);
     bool recvSync(uint32_t timeout);
 
     uint8_t *data();
-    uint16_t datalen();
+    uint32_t datalen();
 };
 
 #endif // __SERIAL__
