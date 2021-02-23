@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 12:54:17
+ * @LastEditTime: 2021-02-23 20:12:02
  * @Description: file content
  */
 #include <iostream>
@@ -10,29 +10,31 @@
 
 #include <cstring>
 
-#include "packets.hpp"
+#include "fdl.hpp"
 
-Request::Request()
+static REQTYPE __request_type = REQTYPE::BSL_CMD_CHECK_BAUD;
+
+FDLRequest::FDLRequest()
     : _reallen(0), crc_modle(CRC_MODLE::CRC_BOOTCODE),
       crc_escape_flag(true), data_escape_flag(true), _argstr("")
 {
     _data = new (std::nothrow) uint8_t[MAX_DATA_LEN]();
 }
 
-Request::~Request()
+FDLRequest::~FDLRequest()
 {
     if (_data)
         delete[] _data;
     _data = nullptr;
 }
 
-REQTYPE Request::type()
+REQTYPE FDLRequest::type()
 {
     cmd_header *hdr = FRAMEHDR(_data);
     return static_cast<REQTYPE>(be16toh(hdr->cmd_type));
 }
 
-std::string Request::typestr()
+std::string FDLRequest::toString()
 {
     cmd_header *hdr = FRAMEHDR(_data);
 
@@ -62,61 +64,75 @@ std::string Request::typestr()
         return "BSL_CMD_CHANGE_BAUD";
     case REQTYPE::BSL_CMD_ERASE_FLASH:
         return "BSL_CMD_ERASE_FLASH";
-    case REQTYPE::BSL_CMD_WRITE_PARTITION_TABLE:
-        return "BSL_CMD_WRITE_PARTITION_TABLE";
-    case REQTYPE::BSL_CMD_START_READ_PARTITION:
-        return "BSL_CMD_START_READ_PARTITION";
-    case REQTYPE::BSL_CMD_READ_PARTITION_SIZE:
-        return "BSL_CMD_READ_PARTITION_SIZE";
-    case REQTYPE::BSL_CMD_END_READ_PARTITION:
-        return "BSL_CMD_END_READ_PARTITION";
+    case REQTYPE::BSL_CMD_REPARTITION:
+        return "BSL_CMD_REPARTITION";
+    case REQTYPE::BSL_CMD_START_READ:
+        return "BSL_CMD_START_READ";
+    case REQTYPE::BSL_CMD_READ_MIDST:
+        return "BSL_CMD_READ_MIDST";
+    case REQTYPE::BSL_CMD_END_READ:
+        return "BSL_CMD_END_READ";
     case REQTYPE::BSL_CMD_EXEC_NAND_INIT:
         return "BSL_CMD_EXEC_NAND_INIT";
-    case REQTYPE::BSL_CMD_RESET:
-        return "BSL_CMD_RESET";
     default:
         return "UNKNOW_COMMAND";
     }
 }
 
-std::string Request::argstr()
+std::string FDLRequest::argString()
 {
     return _argstr;
 }
 
-uint8_t *Request::data()
+uint8_t *FDLRequest::data()
 {
     return _data + sizeof(cmd_header);
 }
 
-uint32_t Request::datalen()
+uint32_t FDLRequest::datalen()
 {
     auto hdr = FRAMEHDR(_data);
     return be16toh(hdr->data_length);
 }
 
-uint8_t *Request::rawdata()
+uint8_t *FDLRequest::rawdata()
 {
     return _data;
 }
 
-uint32_t Request::rawdatalen()
+uint32_t FDLRequest::rawdatalen()
 {
     return _reallen;
 }
 
-void Request::set_escape_flag(bool data_escape_flag, bool crc_escape_flag)
+int FDLRequest::ordinal()
+{
+    return static_cast<int>(type());
+}
+
+bool FDLRequest::isDuplicate()
+{
+    return type() == __request_type;
+}
+
+uint32_t FDLRequest::expect_len()
+{
+    cmd_header *hdr = FRAMEHDR(_data);
+    return be32toh(hdr->data_length);
+}
+
+void FDLRequest::set_escape_flag(bool data_escape_flag, bool crc_escape_flag)
 {
     this->data_escape_flag = data_escape_flag;
     this->crc_escape_flag = crc_escape_flag;
 }
 
-void Request::set_crc(CRC_MODLE mod)
+void FDLRequest::set_crc(CRC_MODLE mod)
 {
     crc_modle = mod;
 }
 
-uint16_t Request::crc16_bootcode(const char *src, uint32_t len)
+uint16_t FDLRequest::crc16_bootcode(const char *src, uint32_t len)
 {
 #define CRC_16_POLYNOMIAL 0x1021
 #define CRC_16_L_POLYNOMIAL 0x8000
@@ -145,7 +161,7 @@ uint16_t Request::crc16_bootcode(const char *src, uint32_t len)
     return (crc);
 }
 
-uint16_t Request::crc16_fdl(const uint16_t *src, uint32_t len)
+uint16_t FDLRequest::crc16_fdl(const uint16_t *src, uint32_t len)
 {
     unsigned int sum = 0;
     uint16_t SourceValue, DestValue;
@@ -173,7 +189,7 @@ uint16_t Request::crc16_fdl(const uint16_t *src, uint32_t len)
     return (~sum);
 }
 
-uint16_t Request::crc16_nv(uint16_t crc, const uint8_t *buffer, uint32_t len)
+uint16_t FDLRequest::crc16_nv(uint16_t crc, const uint8_t *buffer, uint32_t len)
 {
     /** CRC table for the CRC-16. The poly is 0x8005 (x^16 + x^15 + x^2 + 1) */
     uint16_t const crc16_table[256] = {
@@ -215,11 +231,13 @@ uint16_t Request::crc16_nv(uint16_t crc, const uint8_t *buffer, uint32_t len)
     return crc;
 }
 
-void Request::reinit(REQTYPE req)
+void FDLRequest::reinit(REQTYPE req)
 {
     cmd_header *hdr = FRAMEHDR(_data);
 
     memset(_data, 0, MAX_DATA_LEN);
+    __request_type = type();
+
     hdr->magic = MAGIC_7e;
     hdr->cmd_type = htobe16(static_cast<uint16_t>(req));
     hdr->data_length = 0;
@@ -266,7 +284,7 @@ void _do_escape(uint8_t *src, uint32_t srclen, uint32_t magic_num)
     }
 }
 
-void Request::finishup()
+void FDLRequest::finishup()
 {
     uint16_t crc16 = 0;
     uint32_t magic_num = 0;
@@ -318,7 +336,7 @@ void Request::finishup()
 }
 
 template <typename T>
-void Request::push_back(T val)
+void FDLRequest::push_back(T val)
 {
     cmd_header *hdr = FRAMEHDR(_data);
 
@@ -350,7 +368,7 @@ void Request::push_back(T val)
 }
 
 template <>
-void Request::push_back(std::string val)
+void FDLRequest::push_back(std::string val)
 {
     uint32_t padlen = 0x48 - val.size() * 2;
 
@@ -363,20 +381,20 @@ void Request::push_back(std::string val)
     _argstr = val;
 }
 
-void Request::newCheckBaud(const std::string &arg)
+void FDLRequest::newCheckBaud(const std::string &arg)
 {
     _data[0] = 0x7e;
     _reallen = 1;
     _argstr = arg;
 }
 
-void Request::newConnect()
+void FDLRequest::newConnect()
 {
     reinit(REQTYPE::BSL_CMD_CONNECT);
     finishup();
 }
 
-void Request::newStartData(uint32_t addr, uint32_t len, uint32_t cs, const std::string &partition)
+void FDLRequest::newStartData(uint32_t addr, uint32_t len, uint32_t cs, const std::string &partition)
 {
     reinit(REQTYPE::BSL_CMD_START_DATA);
     push_back(htobe32(addr));
@@ -388,7 +406,7 @@ void Request::newStartData(uint32_t addr, uint32_t len, uint32_t cs, const std::
     _argstr = partition;
 }
 
-void Request::newStartData(const std::string &partition, uint32_t len, uint32_t cs)
+void FDLRequest::newStartData(const std::string &partition, uint32_t len, uint32_t cs)
 {
     reinit(REQTYPE::BSL_CMD_START_DATA);
 
@@ -404,7 +422,7 @@ void Request::newStartData(const std::string &partition, uint32_t len, uint32_t 
  * 7e -> 7d 5e
  * 7d -> 7d 5d
  */
-void Request::newMidstData(uint8_t *buf, uint32_t len)
+void FDLRequest::newMidstData(uint8_t *buf, uint32_t len)
 {
     cmd_header *hdr = FRAMEHDR(_data);
     uint8_t *dataptr = FRAMEDATAHDR(_data);
@@ -418,25 +436,25 @@ void Request::newMidstData(uint8_t *buf, uint32_t len)
     finishup();
 }
 
-void Request::newEndData()
+void FDLRequest::newEndData()
 {
     reinit(REQTYPE::BSL_CMD_END_DATA);
     finishup();
 }
 
-void Request::newExecData()
+void FDLRequest::newExecData()
 {
     reinit(REQTYPE::BSL_CMD_EXEC_DATA);
     finishup();
 }
 
-void Request::newNormalReset()
+void FDLRequest::newNormalReset()
 {
     reinit(REQTYPE::BSL_CMD_NORMAL_RESET);
     finishup();
 }
 
-void Request::newReadFlash(uint32_t addr, uint32_t size, uint32_t offset)
+void FDLRequest::newReadFlash(uint32_t addr, uint32_t size, uint32_t offset)
 {
     reinit(REQTYPE::BSL_CMD_ERASE_FLASH);
     push_back(htobe32(addr));
@@ -447,7 +465,7 @@ void Request::newReadFlash(uint32_t addr, uint32_t size, uint32_t offset)
     finishup();
 }
 
-void Request::newEraseFlash(uint32_t addr, uint32_t size)
+void FDLRequest::newEraseFlash(uint32_t addr, uint32_t size)
 {
     reinit(REQTYPE::BSL_CMD_ERASE_FLASH);
     push_back(htobe32(addr));
@@ -456,17 +474,17 @@ void Request::newEraseFlash(uint32_t addr, uint32_t size)
     finishup();
 }
 
-void Request::newErasePartition(uint32_t addr)
+void FDLRequest::newErasePartition(uint32_t addr)
 {
     newEraseFlash(addr, 0);
 }
 
-void Request::newEraseALL()
+void FDLRequest::newEraseALL()
 {
     newEraseFlash(0, 0xffffffff);
 }
 
-void Request::newErasePartition(const std::string &partition)
+void FDLRequest::newErasePartition(const std::string &partition)
 {
     reinit(REQTYPE::BSL_CMD_ERASE_FLASH);
     push_back(partition);
@@ -475,9 +493,9 @@ void Request::newErasePartition(const std::string &partition)
     finishup();
 }
 
-void Request::newWritePartitionTable(const std::vector<partition_info> &table)
+void FDLRequest::newRePartition(const std::vector<partition_info> &table)
 {
-    reinit(REQTYPE::BSL_CMD_WRITE_PARTITION_TABLE);
+    reinit(REQTYPE::BSL_CMD_REPARTITION);
 
     for (auto iter = table.begin(); iter != table.end(); iter++)
     {
@@ -489,37 +507,37 @@ void Request::newWritePartitionTable(const std::vector<partition_info> &table)
     _argstr = "";
 }
 
-void Request::newChangeBaud(BAUD baud)
+void FDLRequest::newChangeBaud(BAUD baud)
 {
     reinit(REQTYPE::BSL_CMD_CHANGE_BAUD);
     push_back(htobe32(static_cast<uint32_t>(baud)));
     finishup();
 }
 
-void Request::newStartReadPartition(const std::string &partition, uint32_t len)
+void FDLRequest::newStartRead(const std::string &partition, uint32_t len)
 {
-    reinit(REQTYPE::BSL_CMD_START_READ_PARTITION);
+    reinit(REQTYPE::BSL_CMD_START_READ);
     push_back(partition);
     push_back(htole32(len));
 
     finishup();
 }
 
-void Request::newReadPartitionSize(uint32_t rxsz, uint32_t offset)
+void FDLRequest::newReadMidst(uint32_t rxsz, uint32_t offset)
 {
-    reinit(REQTYPE::BSL_CMD_READ_PARTITION_SIZE);
+    reinit(REQTYPE::BSL_CMD_READ_MIDST);
     push_back(htole32(rxsz));
     push_back(htole32(offset));
     finishup();
 }
 
-void Request::newEndReadPartition()
+void FDLRequest::newEndRead()
 {
-    reinit(REQTYPE::BSL_CMD_END_READ_PARTITION);
+    reinit(REQTYPE::BSL_CMD_END_READ);
     finishup();
 }
 
-void Request::newExecNandInit()
+void FDLRequest::newExecNandInit()
 {
     reinit(REQTYPE::BSL_CMD_EXEC_NAND_INIT);
     finishup();
@@ -528,27 +546,25 @@ void Request::newExecNandInit()
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
-/*************************** RESPONSE ***************************/
-/*************************** RESPONSE ***************************/
-Response::Response() : _state(RESP_STATE::RESP_STATE_MALFORMED)
+FDLResponse::FDLResponse()
 {
     _data = new (std::nothrow) uint8_t[MAX_DATA_LEN]();
 }
 
-Response ::~Response()
+FDLResponse ::~FDLResponse()
 {
     if (_data)
         delete[] _data;
     _data = nullptr;
 }
 
-REPTYPE Response::type()
+REPTYPE FDLResponse::type()
 {
     auto hdr = FRAMEHDR(_data);
     return static_cast<REPTYPE>(be16toh(hdr->cmd_type));
 }
 
-std::string Response::typestr()
+std::string FDLResponse::toString()
 {
     auto hdr = FRAMEHDR(_data);
 
@@ -596,44 +612,40 @@ std::string Response::typestr()
  * 7d 5e -> 7e
  * 7d 5d -> 7d
  */
-RESP_STATE Response::push_back(uint8_t *d, uint32_t len)
+void FDLResponse::push_back(uint8_t *d, uint32_t len)
 {
     std::copy(d, d + len, _data + _reallen);
     _reallen += len;
-
-    if (_data[0] != MAGIC_7e)
-        _state = RESP_STATE::RESP_STATE_MALFORMED;
-    else if (_data[_reallen - 1] != MAGIC_7e)
-        _state = RESP_STATE::RESP_STATE_INCOMPLETE;
-    else // FIXME: check crc16
-        _state = RESP_STATE::RESP_STATE_OK;
-
-    return _state;
 }
 
-void Response::reset()
+void FDLResponse::reset()
 {
     memset(_data, 0, MAX_DATA_LEN);
     _reallen = 0;
 }
 
-uint8_t *Response::data()
+int FDLResponse::ordinal()
+{
+    return static_cast<int>(type());
+}
+
+uint8_t *FDLResponse::data()
 {
     return _data + sizeof(cmd_header);
 }
 
-uint32_t Response::datalen()
+uint32_t FDLResponse::datalen()
 {
     auto hdr = FRAMEHDR(_data);
     return be16toh(hdr->data_length);
 }
 
-uint8_t *Response::rawdata()
+uint8_t *FDLResponse::rawdata()
 {
     return _data;
 }
 
-uint32_t Response::rawdatalen()
+uint32_t FDLResponse::rawdatalen()
 {
     return _reallen;
 }

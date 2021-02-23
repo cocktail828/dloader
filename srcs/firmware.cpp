@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 10:54:07
+ * @LastEditTime: 2021-02-23 18:57:26
  * @Description: file content
  */
 #include <iostream>
@@ -373,8 +373,10 @@ int Firmware::xmlparser()
         if (!scheme || xmlparser_file(scheme))
             return -1;
 
-        if (!partitions || xmlparser_partition(partitions))
-            return -1;
+        if (!partitions)
+            std::cerr << __func__ << " warnning, xml contains no partition info" << std::endl;
+        else
+            xmlparser_partition(partitions);
 
         std::cerr << __func__ << " parser xml finish" << std::endl;
         return 0;

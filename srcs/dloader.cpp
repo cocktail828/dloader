@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 12:21:12
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 14:24:28
+ * @LastEditTime: 2021-02-23 18:17:37
  * @Description: file content
  */
 #include <iostream>
@@ -42,7 +42,7 @@ void usage(const char *prog)
     cerr << "    -d device             tty device, example(/dev/ttyUSB0)" << endl;
     cerr << "    -p usb port           usb port, it's port string, see '-l' for details" << endl;
     cerr << "    -x pac_file [dir]     exract pac_file only" << endl;
-    cerr << "    -c chip_set           udx710(5g) or u8910(4g)" << endl;
+    cerr << "    -c chip_set           udx710(5g) or uix8910(4g)" << endl;
     cerr << "    -l                    list devices" << endl;
     cerr << "    -h                    help message" << endl;
 }
@@ -175,7 +175,7 @@ int do_update(const string &name)
     if (!upmgr.prepare())
         return -1;
 
-    return upmgr.upgrade_udx710(true);
+    return upmgr.upgrade(name, true);
 }
 
 int main(int argc, char **argv)

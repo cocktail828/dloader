@@ -2,17 +2,18 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 12:43:03
+ * @LastEditTime: 2021-02-23 20:14:41
  * @Description: file content
  */
-#ifndef __PACKETS__
-#define __PACKETS__
+#ifndef __FDL__
+#define __FDL__
 
 #include <iostream>
 #include <string>
 #include <vector>
 
 #include "serial.hpp"
+#include "protocol.hpp"
 
 const static uint8_t MAGIC_7e = 0x7e;
 const static uint8_t MAGIC_7d = 0x7d;
@@ -35,12 +36,11 @@ enum class REQTYPE
     BSL_CMD_READ_FLASH = 0x6,
     BSL_CMD_CHANGE_BAUD = 0x9,
     BSL_CMD_ERASE_FLASH = 0xa,
-    BSL_CMD_WRITE_PARTITION_TABLE = 0x0b,
-    BSL_CMD_START_READ_PARTITION = 0x10,
-    BSL_CMD_READ_PARTITION_SIZE = 0x11,
-    BSL_CMD_END_READ_PARTITION = 0x12,
+    BSL_CMD_REPARTITION = 0x0b,
+    BSL_CMD_START_READ = 0x10,
+    BSL_CMD_READ_MIDST = 0x11,
+    BSL_CMD_END_READ = 0x12,
     BSL_CMD_EXEC_NAND_INIT = 0x21,
-    BSL_CMD_RESET = 0x22,
 };
 
 enum class REPTYPE
@@ -94,7 +94,7 @@ struct partition_info
 // NOTICE: make sure it not less than data len in Midst message
 #define MAX_DATA_LEN 0x4000
 
-class Request final
+class FDLRequest final : public CMDRequest
 {
 private:
     uint8_t *_data;
@@ -112,17 +112,21 @@ private:
     void push_back(T);
 
 public:
-    Request();
-    ~Request();
+    FDLRequest();
+    virtual ~FDLRequest();
 
     REQTYPE type();
-    std::string typestr();
-    std::string argstr();
+    std::string toString();
+    std::string argString();
 
     uint8_t *data();
     uint32_t datalen();
     uint8_t *rawdata();
     uint32_t rawdatalen();
+
+    int ordinal();
+    bool isDuplicate();
+    uint32_t expect_len();
 
     void set_escape_flag(bool data_escape_flag, bool crc_escape_flag);
     void set_crc(CRC_MODLE);
@@ -150,12 +154,12 @@ public:
     void newEraseALL();
     void newErasePartition(const std::string &partition);
 
-    void newWritePartitionTable(const std::vector<partition_info> &table);
+    void newRePartition(const std::vector<partition_info> &table);
 
     void newChangeBaud(BAUD);
-    void newStartReadPartition(const std::string &partition, uint32_t len);
-    void newReadPartitionSize(uint32_t rxsz, uint32_t offset);
-    void newEndReadPartition();
+    void newStartRead(const std::string &partition, uint32_t len);
+    void newReadMidst(uint32_t rxsz, uint32_t offset);
+    void newEndRead();
     void newExecNandInit();
 };
 
@@ -173,27 +177,27 @@ enum class RESP_STATE
     RESP_STATE_MALFORMED,
 };
 
-class Response
+class FDLResponse final : public CMDResponse
 {
 private:
     uint8_t *_data;
     uint32_t _reallen;
-    RESP_STATE _state;
 
 public:
-    Response();
-    ~Response();
+    FDLResponse();
+    virtual ~FDLResponse();
 
     REPTYPE type();
-    std::string typestr();
+    std::string toString();
 
     void reset();
+    int ordinal();
 
-    RESP_STATE push_back(uint8_t *d, uint32_t len);
+    void push_back(uint8_t *d, uint32_t len);
     uint8_t *data();
     uint32_t datalen();
     uint8_t *rawdata();
     uint32_t rawdatalen();
 };
 
-#endif //__PACKETS__
+#endif //__FDL__
