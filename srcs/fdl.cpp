@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 20:12:02
+ * @LastEditTime: 2021-02-24 10:18:19
  * @Description: file content
  */
 #include <iostream>
@@ -12,7 +12,7 @@
 
 #include "fdl.hpp"
 
-static REQTYPE __request_type = REQTYPE::BSL_CMD_CHECK_BAUD;
+static REQTYPE __request_type = REQTYPE::BSL_CMD_CONNECT;
 
 FDLRequest::FDLRequest()
     : _reallen(0), crc_modle(CRC_MODLE::CRC_BOOTCODE),
@@ -34,17 +34,20 @@ REQTYPE FDLRequest::type()
     return static_cast<REQTYPE>(be16toh(hdr->cmd_type));
 }
 
+int FDLRequest::value()
+{
+    return static_cast<int>(type());
+}
+
 std::string FDLRequest::toString()
 {
-    cmd_header *hdr = FRAMEHDR(_data);
-
     if (_reallen == 0)
-        return "EMPTY_RESPONSE";
+        return "EMPTY_REQUEST";
 
     if (_reallen == 1)
         return "BSL_CMD_CHECK_BAUD";
 
-    switch (static_cast<REQTYPE>(be16toh(hdr->cmd_type)))
+    switch (type())
     {
     case REQTYPE::BSL_CMD_CONNECT:
         return "BSL_CMD_CONNECT";
@@ -84,30 +87,30 @@ std::string FDLRequest::argString()
     return _argstr;
 }
 
+void FDLRequest::setArgString(const std::string &argstr)
+{
+    _argstr = argstr;
+}
+
 uint8_t *FDLRequest::data()
 {
     return _data + sizeof(cmd_header);
 }
 
-uint32_t FDLRequest::datalen()
+uint32_t FDLRequest::dataLen()
 {
     auto hdr = FRAMEHDR(_data);
     return be16toh(hdr->data_length);
 }
 
-uint8_t *FDLRequest::rawdata()
+uint8_t *FDLRequest::rawData()
 {
     return _data;
 }
 
-uint32_t FDLRequest::rawdatalen()
+uint32_t FDLRequest::rawDataLen()
 {
     return _reallen;
-}
-
-int FDLRequest::ordinal()
-{
-    return static_cast<int>(type());
 }
 
 bool FDLRequest::isDuplicate()
@@ -115,24 +118,28 @@ bool FDLRequest::isDuplicate()
     return type() == __request_type;
 }
 
-uint32_t FDLRequest::expect_len()
+bool FDLRequest::onWrite()
 {
-    cmd_header *hdr = FRAMEHDR(_data);
-    return be32toh(hdr->data_length);
+    return type() == REQTYPE::BSL_CMD_MIDST_DATA;
 }
 
-void FDLRequest::set_escape_flag(bool data_escape_flag, bool crc_escape_flag)
+bool FDLRequest::onRead()
 {
-    this->data_escape_flag = data_escape_flag;
-    this->crc_escape_flag = crc_escape_flag;
+    return type() == REQTYPE::BSL_CMD_READ_MIDST;
 }
 
-void FDLRequest::set_crc(CRC_MODLE mod)
+void FDLRequest::setEscapeFlag(bool data_es_flag, bool crc_es_flag)
+{
+    this->data_escape_flag = data_es_flag;
+    this->crc_escape_flag = crc_es_flag;
+}
+
+void FDLRequest::setCrcModle(CRC_MODLE mod)
 {
     crc_modle = mod;
 }
 
-uint16_t FDLRequest::crc16_bootcode(const char *src, uint32_t len)
+uint16_t FDLRequest::crc16BootCode(const char *src, uint32_t len)
 {
 #define CRC_16_POLYNOMIAL 0x1021
 #define CRC_16_L_POLYNOMIAL 0x8000
@@ -161,7 +168,7 @@ uint16_t FDLRequest::crc16_bootcode(const char *src, uint32_t len)
     return (crc);
 }
 
-uint16_t FDLRequest::crc16_fdl(const uint16_t *src, uint32_t len)
+uint16_t FDLRequest::crc16FDL(const uint16_t *src, uint32_t len)
 {
     unsigned int sum = 0;
     uint16_t SourceValue, DestValue;
@@ -189,7 +196,7 @@ uint16_t FDLRequest::crc16_fdl(const uint16_t *src, uint32_t len)
     return (~sum);
 }
 
-uint16_t FDLRequest::crc16_nv(uint16_t crc, const uint8_t *buffer, uint32_t len)
+uint16_t FDLRequest::crc16NV(uint16_t crc, const uint8_t *buffer, uint32_t len)
 {
     /** CRC table for the CRC-16. The poly is 0x8005 (x^16 + x^15 + x^2 + 1) */
     uint16_t const crc16_table[256] = {
@@ -235,8 +242,8 @@ void FDLRequest::reinit(REQTYPE req)
 {
     cmd_header *hdr = FRAMEHDR(_data);
 
-    memset(_data, 0, MAX_DATA_LEN);
     __request_type = type();
+    memset(_data, 0, MAX_DATA_LEN);
 
     hdr->magic = MAGIC_7e;
     hdr->cmd_type = htobe16(static_cast<uint16_t>(req));
@@ -293,9 +300,9 @@ void FDLRequest::finishup()
         push_back(uint8_t(0));
 
     if (crc_modle == CRC_MODLE::CRC_BOOTCODE)
-        crc16 = crc16_bootcode(reinterpret_cast<char *>(_data + 1), _reallen - 1);
-    else if (crc_modle == CRC_MODLE::CRC_FDL)
-        crc16 = crc16_fdl(reinterpret_cast<uint16_t *>(_data + 1), _reallen - 1);
+        crc16 = crc16BootCode(reinterpret_cast<char *>(_data + 1), _reallen - 1);
+    else
+        crc16 = crc16FDL(reinterpret_cast<uint16_t *>(_data + 1), _reallen - 1);
 
     // no escape
     if (!data_escape_flag)
@@ -377,15 +384,12 @@ void FDLRequest::push_back(std::string val)
 
     for (; padlen > 0; padlen--)
         push_back(uint8_t(0));
-
-    _argstr = val;
 }
 
-void FDLRequest::newCheckBaud(const std::string &arg)
+void FDLRequest::newCheckBaud()
 {
     _data[0] = 0x7e;
     _reallen = 1;
-    _argstr = arg;
 }
 
 void FDLRequest::newConnect()
@@ -394,7 +398,7 @@ void FDLRequest::newConnect()
     finishup();
 }
 
-void FDLRequest::newStartData(uint32_t addr, uint32_t len, uint32_t cs, const std::string &partition)
+void FDLRequest::newStartData(uint32_t addr, uint32_t len, uint32_t cs)
 {
     reinit(REQTYPE::BSL_CMD_START_DATA);
     push_back(htobe32(addr));
@@ -403,7 +407,6 @@ void FDLRequest::newStartData(uint32_t addr, uint32_t len, uint32_t cs, const st
         push_back(htobe32(cs));
 
     finishup();
-    _argstr = partition;
 }
 
 void FDLRequest::newStartData(const std::string &partition, uint32_t len, uint32_t cs)
@@ -504,7 +507,6 @@ void FDLRequest::newRePartition(const std::vector<partition_info> &table)
     }
 
     finishup();
-    _argstr = "";
 }
 
 void FDLRequest::newChangeBaud(BAUD baud)
@@ -546,7 +548,7 @@ void FDLRequest::newExecNandInit()
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
-FDLResponse::FDLResponse()
+FDLResponse::FDLResponse() : _reallen(0)
 {
     _data = new (std::nothrow) uint8_t[MAX_DATA_LEN]();
 }
@@ -564,14 +566,20 @@ REPTYPE FDLResponse::type()
     return static_cast<REPTYPE>(be16toh(hdr->cmd_type));
 }
 
+int FDLResponse::value()
+{
+    return static_cast<int>(type());
+}
+
 std::string FDLResponse::toString()
 {
-    auto hdr = FRAMEHDR(_data);
-
     if (_reallen == 0)
-        return "EMPTY_RESPONSE";
+        return "BSL_EMPTY_RESPONSE";
 
-    switch (static_cast<REPTYPE>(be16toh(hdr->cmd_type)))
+    else if (_reallen < sizeof(cmd_header))
+        return "BSL_INCOMPLETE_RESPONSE";
+
+    switch (type())
     {
     case REPTYPE::BSL_REP_ACK:
         return "BSL_REP_ACK";
@@ -608,6 +616,12 @@ std::string FDLResponse::toString()
     }
 }
 
+void FDLResponse::reset()
+{
+    memset(_data, 0, MAX_DATA_LEN);
+    _reallen = 0;
+}
+
 /**
  * 7d 5e -> 7e
  * 7d 5d -> 7d
@@ -618,34 +632,41 @@ void FDLResponse::push_back(uint8_t *d, uint32_t len)
     _reallen += len;
 }
 
-void FDLResponse::reset()
-{
-    memset(_data, 0, MAX_DATA_LEN);
-    _reallen = 0;
-}
-
-int FDLResponse::ordinal()
-{
-    return static_cast<int>(type());
-}
-
 uint8_t *FDLResponse::data()
 {
     return _data + sizeof(cmd_header);
 }
 
-uint32_t FDLResponse::datalen()
+/**
+ * NOTICE: in BOOTCODE mode, crc is also escaped
+ * but in FDL, crc is not escaped, we can ignore it
+ */
+uint32_t FDLResponse::dataLen()
 {
-    auto hdr = FRAMEHDR(_data);
-    return be16toh(hdr->data_length);
+    return _reallen - sizeof(cmd_header) - sizeof(cmd_tail);
 }
 
-uint8_t *FDLResponse::rawdata()
+uint8_t *FDLResponse::rawData()
 {
     return _data;
 }
 
-uint32_t FDLResponse::rawdatalen()
+uint32_t FDLResponse::rawDataLen()
 {
     return _reallen;
+}
+
+uint32_t FDLResponse::expectLength()
+{
+    auto hdr = FRAMEHDR(_data);
+
+    if (_reallen >= sizeof(cmd_header))
+        return be16toh(hdr->data_length) + sizeof(cmd_header) + sizeof(cmd_tail);
+    else
+        return 0;
+}
+
+uint32_t FDLResponse::minLength()
+{
+    return sizeof(cmd_header);
 }

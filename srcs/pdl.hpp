@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-10 08:46:33
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 20:14:25
+ * @LastEditTime: 2021-02-24 10:08:58
  * @Description: file content
  */
 #ifndef __PDL__
@@ -55,9 +55,8 @@ enum class PDLREP
 
 #define PDL_MAX_DATA_LEN 4096
 
-#define PDL_HEADER(p) reinterpret_cast<pdl_pkt_header *>(p)
-#define PDL_DATA(p) reinterpret_cast<pdl_pkt_data *>(p + sizeof(pdl_pkt_header))
-#define PDL_TAIL(p, l) reinterpret_cast<pdl_pkt_header *>(p + l)
+#define PDLHEADER(p) reinterpret_cast<pdl_pkt_header *>(p)
+#define PDLTAG(p) reinterpret_cast<pdl_pkt_data *>(p + sizeof(pdl_pkt_header))
 #pragma pack(push, 1)
 
 struct pdl_pkt_header
@@ -98,16 +97,17 @@ public:
     void newPDLEnd();
     void newPDLExec();
 
-    uint8_t *rawdata();
-    uint32_t rawdatalen();
+    uint8_t *rawData();
+    uint32_t rawDataLen();
 
     PDLREQ type();
+    int value();
     std::string toString();
-
     std::string argString();
-    int ordinal();
+
     bool isDuplicate();
-    uint32_t expect_len();
+    bool onWrite();
+    bool onRead();
 };
 
 class PDLResponse final : public CMDResponse
@@ -121,12 +121,15 @@ public:
     virtual ~PDLResponse();
 
     PDLREP type();
-    uint8_t *rawdata();
-    uint32_t rawdatalen();
+    int value();
+    std::string toString();
+
+    uint8_t *rawData();
+    uint32_t rawDataLen();
+    uint32_t expectLength();
+    uint32_t minLength();
 
     void reset();
-    std::string toString();
-    int ordinal();
     void push_back(uint8_t *d, uint32_t len);
 };
 

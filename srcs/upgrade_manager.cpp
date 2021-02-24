@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:36:51
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 20:22:21
+ * @LastEditTime: 2021-02-24 10:51:13
  * @Description: file content
  */
 
@@ -56,88 +56,74 @@ bool UpgradeManager::prepare()
     return true;
 }
 
-void UpgradeManager::hexdump(const std::string &prefix, uint8_t *buf, uint32_t sz, uint32_t dumplen)
+void UpgradeManager::hexdump(const std::string &prefix, uint8_t *buf, uint32_t len, uint32_t dumplen)
 {
     char _buff[4096] = {'\0'};
     uint32_t pos = 0;
 
-    snprintf(reinterpret_cast<char *>(_buff) + strlen(_buff),
-             sizeof(_buff), "%s (%04d)\n", prefix.c_str(), sz);
-
-    for (pos = 0; pos < sz && pos < dumplen && pos < 1024; pos++)
+    for (pos = 0; pos < len && pos < 1024 && pos < dumplen; pos++)
     {
-        if ((pos % 16) == 0)
+        if (pos == 0)
             snprintf(reinterpret_cast<char *>(_buff) + strlen(_buff),
-                     sizeof(_buff), "%03x ", pos / 16);
+                     sizeof(_buff), "%s %03x  ", prefix.c_str(), pos / 16);
+        else if ((pos % 24) == 0)
+            snprintf(reinterpret_cast<char *>(_buff) + strlen(_buff),
+                     sizeof(_buff), "\n%s %03x  ", prefix.c_str(), pos / 16);
         else if ((pos % 8) == 0)
             snprintf(reinterpret_cast<char *>(_buff) + strlen(_buff),
-                     sizeof(_buff), "  ");
+                     sizeof(_buff), " ");
 
         snprintf(reinterpret_cast<char *>(_buff) + strlen(_buff),
                  sizeof(_buff), "%02x ", buf[pos]);
     }
 
-    if ((sz - pos) >= 5)
+    if ((len - pos) >= 5)
         snprintf(reinterpret_cast<char *>(_buff) + strlen(_buff),
                  sizeof(_buff), "... %02x %02x %02x %02x %02x",
-                 buf[sz - 5], buf[sz - 4], buf[sz - 3], buf[sz - 2], buf[sz - 1]);
+                 buf[len - 5], buf[len - 4], buf[len - 3], buf[len - 2], buf[len - 1]);
     std::cerr << _buff << std::endl;
 }
 
 void UpgradeManager::verbose(CMDRequest *req)
 {
-    char _buff[1024] = {'\0'};
+    static bool _is_duplicate = false;
+
+    if (_is_duplicate && !req->isDuplicate())
+        std::cerr << std::endl;
+
+    if (req->isDuplicate() && req->onWrite() && !getenv("VERBOSE"))
+        std::cerr << ">";
+    else if (req->isDuplicate() && req->onRead() && !getenv("VERBOSE"))
+        std::cerr << "<";
+    else
+        std::cerr << ">>> " << req->toString() << " " << req->argString()
+                  << " (" << req->rawDataLen() << ")" << std::endl;
+
+    _is_duplicate = req->isDuplicate();
 
     if (getenv("VERBOSE"))
-    {
-        std::string prefix(">>> ");
-        prefix += req->toString();
-
-        hexdump(prefix, req->rawdata(), req->rawdatalen());
-    }
-    else
-    {
-        snprintf(reinterpret_cast<char *>(_buff) + strlen(_buff),
-                 sizeof(_buff), ">>> %s(0x%02x) %s",
-                 req->toString().c_str(), req->ordinal(),
-                 req->argString().c_str());
-
-        std::cerr << _buff << std::endl;
-    }
+        hexdump(">>>", req->rawData(), req->rawDataLen());
 }
 
-void UpgradeManager::verbose(CMDResponse *resp)
+void UpgradeManager::verbose(CMDResponse *resp, bool ondata)
 {
-    char _buff[1024] = {'\0'};
-
+    if (!ondata)
+        std::cerr << "<<< " << resp->toString() << " (" << resp->rawDataLen() << ")" << std::endl;
     if (getenv("VERBOSE"))
-    {
-        std::string prefix("<<< ");
-        prefix += resp->toString();
-
-        hexdump(prefix, resp->rawdata(), resp->rawdatalen());
-    }
-    else
-    {
-        snprintf(reinterpret_cast<char *>(_buff) + strlen(_buff),
-                 sizeof(_buff), "<<< %s(0x%02x)",
-                 resp->toString().c_str(), resp->ordinal());
-
-        std::cerr << _buff << std::endl;
-    }
+        hexdump("<<<", resp->rawData(), resp->rawDataLen());
 }
 
 bool UpgradeManager::talk(CMDRequest *req, CMDResponse *resp, int timeout)
 {
-    int remainlen = req->expect_len();
-
     resp->reset();
     verbose(req);
-    if (!serial.sendSync(req->rawdata(), req->rawdatalen()))
-    {
-        std::cerr << "sendSync failed, req=" << req->toString() << std::endl;
-        return false;
-    }
+    // if (!serial.sendSync(req->rawData(), req->rawDataLen()))
+    // {
+    //     std::cerr << "sendSync failed, req=" << req->toString() << std::endl;
+    //     return false;
+    // }
+    serial.sendSync(req->rawData(), 8);
+    serial.sendSync(req->rawData() + 8, 12);
 
     do
     {
@@ -147,9 +133,16 @@ bool UpgradeManager::talk(CMDRequest *req, CMDResponse *resp, int timeout)
             return false;
         }
         resp->push_back(serial.data(), serial.datalen());
-        remainlen -= static_cast<int>(serial.datalen());
-    } while (remainlen > 0);
-    verbose(resp);
+
+        if (resp->rawDataLen() < resp->minLength())
+            continue;
+
+        // real length may much longgger if crc is escaped
+        if (resp->expectLength() <= resp->rawDataLen())
+            break;
+    } while (1);
+
+    verbose(resp, req->onWrite() || req->onRead());
 
     return true;
 }
@@ -157,15 +150,14 @@ bool UpgradeManager::talk(CMDRequest *req, CMDResponse *resp, int timeout)
 int UpgradeManager::connect()
 {
     int max_try = 10;
-    FDLRequest req;
-    FDLResponse resp;
 
     serial.setBaud(BAUD::BAUD115200);
     do
     {
         usleep(1000);
-        req.newCheckBaud(BaudARRSTR[static_cast<int>(BAUD::BAUD115200)]);
-        if (!talk(&req, &resp))
+        request.setArgString(BaudARRSTR[static_cast<int>(BAUD::BAUD115200)]);
+        request.newCheckBaud();
+        if (!talk(&request, &response))
         {
             if (--max_try <= 0)
                 return -1;
@@ -176,25 +168,23 @@ int UpgradeManager::connect()
         }
     } while (1);
 
-    if (resp.type() != REPTYPE::BSL_REP_VER)
+    if (response.type() != REPTYPE::BSL_REP_VER)
         goto _exit;
 
-    req.newConnect();
-    if (!talk(&req, &resp) || resp.type() != REPTYPE::BSL_REP_ACK)
+    request.newConnect();
+    if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
         goto _exit;
 
     return 0;
 
 _exit:
-    std::cerr << __func__ << " " << req.toString()
-              << " get unexpect response " << resp.toString() << std::endl;
+    std::cerr << __func__ << " " << request.toString()
+              << " get unexpect response " << response.toString() << std::endl;
     return -1;
 }
 
-int UpgradeManager::transfer(const XMLFileInfo &info, uint32_t maxlen, bool isfdl)
+int UpgradeManager::transfer(const XMLFileInfo &info, uint32_t maxlen, bool isoldproto)
 {
-    FDLRequest req;
-    FDLResponse resp;
     uint32_t filesz = info.use_pac_file ? firmware.member_file_size(info.fileid)
                                         : firmware.local_file_size(info.fpath);
     std::ifstream fin = info.use_pac_file ? firmware.open_pac(info.fileid)
@@ -208,12 +198,13 @@ int UpgradeManager::transfer(const XMLFileInfo &info, uint32_t maxlen, bool isfd
             fin.close();
     };
 
-    if (isfdl)
-        req.newStartData(info.base, info.realsize);
+    request.setArgString(info.fileid);
+    if (isoldproto)
+        request.newStartData(info.base, info.realsize);
     else
-        req.newStartData(info.blockid, info.realsize, info.checksum);
+        request.newStartData(info.blockid, info.realsize, info.checksum);
 
-    if (!talk(&req, &resp) || resp.type() != REPTYPE::BSL_REP_ACK)
+    if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
         goto _exit;
 
     do
@@ -226,8 +217,8 @@ int UpgradeManager::transfer(const XMLFileInfo &info, uint32_t maxlen, bool isfd
             nv_replace_byte = true;
         }
 
-        req.newMidstData(_data, txlen);
-        if (!talk(&req, &resp) || resp.type() != REPTYPE::BSL_REP_ACK)
+        request.newMidstData(_data, txlen);
+        if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
             goto _exit;
 
         filesz -= txlen;
@@ -235,28 +226,25 @@ int UpgradeManager::transfer(const XMLFileInfo &info, uint32_t maxlen, bool isfd
     firmware.close(fin);
 
     // this operation may take much more time, so set a much longger timeout
-    req.newEndData();
-    if (!talk(&req, &resp, 30000) || resp.type() != REPTYPE::BSL_REP_ACK)
+    request.newEndData();
+    if (!talk(&request, &response, 30000) || response.type() != REPTYPE::BSL_REP_ACK)
         goto _exit;
 
     return 0;
 
 _exit:
-    std::cerr << __func__ << " " << req.toString()
-              << " get unexpect response " << resp.toString() << std::endl;
+    std::cerr << __func__ << " " << request.toString()
+              << " get unexpect response " << response.toString() << std::endl;
     return -1;
 }
 
 int UpgradeManager::exec()
 {
-    FDLRequest req;
-    FDLResponse resp;
-
-    req.newExecData();
-    if (!talk(&req, &resp) || resp.type() != REPTYPE::BSL_REP_ACK)
+    request.newExecData();
+    if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
     {
-        std::cerr << __func__ << " " << req.toString()
-                  << " get unexpect response " << resp.toString() << std::endl;
+        std::cerr << __func__ << " " << request.toString()
+                  << " get unexpect response " << response.toString() << std::endl;
         return -1;
     }
 
@@ -270,7 +258,6 @@ void UpgradeManager::checksum(XMLFileInfo &info)
     uint32_t fsz = firmware.member_file_size(info.fileid);
     uint16_t crc = 0;
     uint32_t cs = 0;
-    FDLRequest req;
 
     firmware.read(fin, _data, 2);
     fsz -= 2;
@@ -278,7 +265,7 @@ void UpgradeManager::checksum(XMLFileInfo &info)
     {
         uint32_t sz = (fsz > 4096) ? 4096 : fsz;
         firmware.read(fin, _data, sz);
-        crc = req.crc16_nv(crc, _data, sz);
+        crc = request.crc16NV(crc, _data, sz);
 
         for (auto i = 0; i < sz; i++)
             cs += _data[i];
@@ -304,15 +291,14 @@ std::string get_real_path(const std::string &pac)
 
 int UpgradeManager::backup_partition(XMLFileInfo &info)
 {
-    FDLRequest req;
-    FDLResponse resp;
     uint32_t totalsz = 0;
     uint32_t partitionsz = info.size;
     std::string name = get_real_path(pac) + "/" + info.blockid + ".bak";
     std::ofstream fout(name, std::ios::trunc);
 
-    req.set_crc(CRC_MODLE::CRC_FDL);
-    req.set_escape_flag(false, false);
+    request.setCrcModle(CRC_MODLE::CRC_FDL);
+    request.setEscapeFlag(false, false);
+    request.setArgString(info.fileid);
     if (!fout.is_open())
     {
         std::cerr << __func__ << " cannot backup partition " << info.blockid
@@ -326,25 +312,25 @@ int UpgradeManager::backup_partition(XMLFileInfo &info)
         fout.close();
     };
 
-    req.newStartRead(info.blockid, info.size);
-    if (!talk(&req, &resp) || resp.type() != REPTYPE::BSL_REP_ACK)
+    request.newStartRead(info.blockid, info.size);
+    if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
         goto _exit;
 
     do
     {
         uint32_t sz = (partitionsz > FRAMESZ_DATA) ? FRAMESZ_DATA : partitionsz;
 
-        req.newReadMidst(sz, totalsz);
-        if (!talk(&req, &resp) || resp.type() != REPTYPE::BSL_REP_READ_FLASH)
+        request.newReadMidst(sz, totalsz);
+        if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_READ_FLASH)
             goto _exit;
 
-        fout.write(reinterpret_cast<char *>(resp.data()), resp.datalen());
+        fout.write(reinterpret_cast<char *>(response.data()), response.dataLen());
         partitionsz -= sz;
         totalsz += sz;
     } while (partitionsz > 0);
 
-    req.newEndRead();
-    if (!talk(&req, &resp) || resp.type() != REPTYPE::BSL_REP_ACK)
+    request.newEndRead();
+    if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
         goto _exit;
 
     return 0;
@@ -396,28 +382,39 @@ _exit:
     return -1;
 }
 
-int UpgradeManager::flash_fdl(const XMLFileInfo &info, bool isbootcode)
+int UpgradeManager::flash_fdl(const XMLFileInfo &info)
 {
-    int ret;
-    FDLRequest req;
-    FDLResponse resp;
-
-    req.set_crc(isbootcode ? CRC_MODLE::CRC_BOOTCODE : CRC_MODLE::CRC_FDL);
-    req.set_escape_flag(true, true);
+    request.setCrcModle(CRC_MODLE::CRC_BOOTCODE);
+    request.setEscapeFlag(true, true);
     if (connect())
         goto _exit;
 
-    if (transfer(info, isbootcode ? FRAMESZ_BOOTCODE : FRAMESZ_FDL, true))
+    if (transfer(info, FRAMESZ_BOOTCODE, true))
+        goto _exit;
+
+    return exec();
+_exit:
+    std::cerr << __func__ << " fail to flash " << info.fileid << std::endl;
+    return -1;
+}
+
+int UpgradeManager::flash_nand_fdl(const XMLFileInfo &info)
+{
+    int ret;
+
+    request.setCrcModle(CRC_MODLE::CRC_FDL);
+    request.setEscapeFlag(true, true);
+    if (connect())
+        goto _exit;
+
+    if (transfer(info, FRAMESZ_FDL, true))
         goto _exit;
 
     ret = exec();
-    if (isbootcode)
-        return ret;
-
-    if (!ret || resp.type() == REPTYPE::BSL_REP_INCOMPATIBLE_PARTITION)
+    if (!ret || response.type() == REPTYPE::BSL_REP_INCOMPATIBLE_PARTITION)
     {
-        req.newExecNandInit();
-        if (!talk(&req, &resp) || resp.type() != REPTYPE::BSL_REP_ACK)
+        request.newExecNandInit();
+        if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
             goto _exit;
     }
     return 0;
@@ -429,36 +426,29 @@ _exit:
 
 int UpgradeManager::flash_partition(const XMLFileInfo &info)
 {
-    FDLRequest req;
-    FDLResponse resp;
-    req.set_crc(CRC_MODLE::CRC_FDL);
-    req.set_escape_flag(false, false);
+    request.setCrcModle(CRC_MODLE::CRC_FDL);
+    request.setEscapeFlag(false, false);
 
     return transfer(info, FRAMESZ_DATA, false);
 }
 
 int UpgradeManager::erase_partition(const XMLFileInfo &info)
 {
-    FDLRequest req;
-    FDLResponse resp;
+    request.setCrcModle(CRC_MODLE::CRC_FDL);
+    request.setEscapeFlag(false, false);
 
-    req.set_crc(CRC_MODLE::CRC_FDL);
-    req.set_escape_flag(false, false);
-
-    req.newErasePartition(info.blockid);
-    return (talk(&req, &resp) && resp.type() == REPTYPE::BSL_REP_ACK) ? 0 : -1;
+    request.newErasePartition(info.blockid);
+    return (talk(&request, &response) && response.type() == REPTYPE::BSL_REP_ACK) ? 0 : -1;
 }
 
 int UpgradeManager::upgrade(const std::string &chipset, bool backup)
 {
-    FDLRequest req;
-    FDLResponse resp;
     auto table = firmware.get_partition_vec();
     auto filevec = firmware.get_file_vec();
     if (filevec.empty())
     {
         std::cerr << __func__ << " failed for empty vector" << std::endl;
-        return -1;
+        goto _exit;
     }
 
     // FDL
@@ -466,18 +456,18 @@ int UpgradeManager::upgrade(const std::string &chipset, bool backup)
     {
         if (string_case_cmp(iter->fileid, "FDL"))
         {
-            if (flash_fdl(*iter, true))
-                return -1;
+            if (flash_fdl(*iter))
+                goto _exit;
+        }
+        else if (string_case_cmp(iter->fileid, "FDL2"))
+        {
+            if (flash_nand_fdl(*iter))
+                goto _exit;
         }
         else if (string_case_cmp(iter->fileid, "HOST_FDL"))
         {
             if (flash_pdl(*iter))
-                return -1;
-        }
-        else if (string_case_cmp(iter->fileid, "FDL2"))
-        {
-            if (flash_fdl(*iter, false))
-                return -1;
+                goto _exit;
         }
     }
 
@@ -486,34 +476,31 @@ int UpgradeManager::upgrade(const std::string &chipset, bool backup)
     {
         for (auto iter = filevec.begin(); iter != filevec.end(); iter++)
         {
-            if (iter->isBackup)
-            {
-                if (iter->isBackup)
-                    if (backup_partition(*iter))
-                        return -1;
-            }
+            if (iter->isBackup && backup_partition(*iter))
+                goto _exit;
         }
     }
 
     // update partition table
     if (!table.empty())
     {
-        req.newRePartition(table);
-        if (!talk(&req, &resp) || resp.type() != REPTYPE::BSL_REP_ACK)
-            return -1;
+        request.newRePartition(table);
+        if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
+            goto _exit;
     }
 
     // do update
     for (auto iter = filevec.begin(); iter != filevec.end(); iter++)
     {
         if (string_case_cmp(iter->fileid, "FDL") ||
-            string_case_cmp(iter->fileid, "FDL2"))
+            string_case_cmp(iter->fileid, "FDL2") ||
+            string_case_cmp(iter->fileid, "HOST_FDL"))
             continue;
 
         if (iter->type == "EraseFlash2")
         {
             if (erase_partition(*iter))
-                return -1;
+                goto _exit;
         }
         else
         {
@@ -532,13 +519,17 @@ int UpgradeManager::upgrade(const std::string &chipset, bool backup)
                 checksum(*iter);
 
             if (flash_partition(*iter))
-                return -1;
+                goto _exit;
         }
     }
 
-    req.newNormalReset();
-    talk(&req, &resp);
+    request.newNormalReset();
+    talk(&request, &response);
 
-    std::cerr << __func__ << " finished" << std::endl;
+    std::cerr << __func__ << " success" << std::endl;
     return 0;
+
+_exit:
+    std::cerr << __func__ << " fail" << std::endl;
+    return -1;
 }

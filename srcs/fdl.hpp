@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 20:14:41
+ * @LastEditTime: 2021-02-24 10:10:11
  * @Description: file content
  */
 #ifndef __FDL__
@@ -66,7 +66,6 @@ enum class CRC_MODLE
 {
     CRC_BOOTCODE, // crc used when talk with bootcode
     CRC_FDL,      // crc used when talk with fdl
-    CRC_NV,       // crc used when transfer nv
 };
 
 #pragma pack(1)
@@ -116,27 +115,29 @@ public:
     virtual ~FDLRequest();
 
     REQTYPE type();
+    int value();
     std::string toString();
     std::string argString();
+    void setArgString(const std::string &);
 
     uint8_t *data();
-    uint32_t datalen();
-    uint8_t *rawdata();
-    uint32_t rawdatalen();
+    uint32_t dataLen();
+    uint8_t *rawData();
+    uint32_t rawDataLen();
 
-    int ordinal();
     bool isDuplicate();
-    uint32_t expect_len();
+    bool onWrite();
+    bool onRead();
 
-    void set_escape_flag(bool data_escape_flag, bool crc_escape_flag);
-    void set_crc(CRC_MODLE);
-    uint16_t crc16_bootcode(const char *src, uint32_t len);
-    uint16_t crc16_fdl(const uint16_t *src, uint32_t len);
-    uint16_t crc16_nv(uint16_t crc, const uint8_t *src, uint32_t len);
+    void setEscapeFlag(bool data_es_flag, bool crc_es_flag);
+    void setCrcModle(CRC_MODLE);
+    uint16_t crc16BootCode(const char *src, uint32_t len);
+    uint16_t crc16FDL(const uint16_t *src, uint32_t len);
+    uint16_t crc16NV(uint16_t crc, const uint8_t *src, uint32_t len);
 
-    void newCheckBaud(const std::string &arg);
+    void newCheckBaud();
     void newConnect();
-    void newStartData(uint32_t addr, uint32_t len, uint32_t cs = 0, const std::string &arg = "FDL");
+    void newStartData(uint32_t addr, uint32_t len, uint32_t cs = 0);
     void newStartData(const std::string &idstr, uint32_t len, uint32_t cs = 0);
     void newMidstData(uint8_t *buf, uint32_t len);
     void newEndData();
@@ -188,16 +189,18 @@ public:
     virtual ~FDLResponse();
 
     REPTYPE type();
+    int value();
     std::string toString();
 
     void reset();
-    int ordinal();
-
     void push_back(uint8_t *d, uint32_t len);
+
     uint8_t *data();
-    uint32_t datalen();
-    uint8_t *rawdata();
-    uint32_t rawdatalen();
+    uint32_t dataLen();
+    uint8_t *rawData();
+    uint32_t rawDataLen();
+    uint32_t expectLength();
+    uint32_t minLength();
 };
 
 #endif //__FDL__

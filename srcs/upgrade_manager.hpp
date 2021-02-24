@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:33
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 19:26:18
+ * @LastEditTime: 2021-02-24 10:41:13
  * @Description: file content
  */
 #ifndef __UPDATE__
@@ -27,19 +27,19 @@ class UpgradeManager
 {
 private:
     SerialPort serial;
-    // Response resp;
-    // Request req;
+    FDLRequest request;
+    FDLResponse response;
     Firmware firmware;
     std::string pac;
     uint8_t *_data;
 
 private:
-    void hexdump(const std::string &prefix, uint8_t *buf, uint32_t sz, uint32_t dumplen = 20);
+    void hexdump(const std::string &prefix, uint8_t *buf, uint32_t len, uint32_t dumplen = 20);
     void verbose(CMDRequest *req);
-    void verbose(CMDResponse *resp);
+    void verbose(CMDResponse *resp, bool ondata);
     bool talk(CMDRequest *req, CMDResponse *resp, int timeout = 5000);
     int connect();
-    int transfer(const XMLFileInfo &info, uint32_t maxlen, bool isfdl = false);
+    int transfer(const XMLFileInfo &info, uint32_t maxlen, bool isoldproto = false);
     int exec();
     void checksum(XMLFileInfo &info);
 
@@ -52,7 +52,8 @@ public:
 
     int backup_partition(XMLFileInfo &info);
     int flash_pdl(const XMLFileInfo &info);
-    int flash_fdl(const XMLFileInfo &info, bool isbootcode);
+    int flash_fdl(const XMLFileInfo &info);
+    int flash_nand_fdl(const XMLFileInfo &info);
     int flash_partition(const XMLFileInfo &info);
     int erase_partition(const XMLFileInfo &info);
 

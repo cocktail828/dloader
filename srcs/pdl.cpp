@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-10 09:05:20
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 20:15:46
+ * @LastEditTime: 2021-02-24 10:18:31
  * @Description: file content
  */
 #include <iostream>
@@ -26,28 +26,27 @@ PDLRequest::~PDLRequest()
 
 void PDLRequest::reinit(PDLREQ cmd)
 {
-    auto hdr = PDL_HEADER(_data);
-    auto datahdr = PDL_DATA(_data);
+    auto hdr = PDLHEADER(_data);
+    auto tag = PDLTAG(_data);
 
-    memset(_data, 0, PDL_MAX_DATA_LEN);
     __request_type = type();
+    memset(_data, 0, PDL_MAX_DATA_LEN);
 
     hdr->ucTag = 0xae;
     hdr->nDataSize = htole32(sizeof(pdl_pkt_data));
     hdr->ucFlowID = htole16(0xff);
     hdr->wReserved = 0;
 
-    datahdr->dwCmdType = htole32(static_cast<uint32_t>(cmd));
+    tag->dwCmdType = htole32(static_cast<uint32_t>(cmd));
 
     _reallen = sizeof(pdl_pkt_header) + sizeof(pdl_pkt_data);
 }
 
 void PDLRequest::push_back(uint8_t *data, uint32_t len)
 {
-    auto hdr = PDL_HEADER(_data);
-    auto tail = PDL_TAIL(_data, _reallen);
+    auto hdr = PDLHEADER(_data);
 
-    std::copy(data, data + len, reinterpret_cast<uint8_t *>(tail));
+    std::copy(data, data + len, _data + _reallen);
 
     _reallen += len;
     hdr->nDataSize = htole32(_reallen - sizeof(pdl_pkt_header));
@@ -60,12 +59,12 @@ void PDLRequest::newPDLConnect()
 
 void PDLRequest::newPDLStart(uint32_t addr, uint32_t size)
 {
-    auto datahdr = PDL_DATA(_data);
+    auto tag = PDLTAG(_data);
     uint8_t d[] = {'P', 'D', 'L', '1', 0};
 
     reinit(PDLREQ::PDL_CMD_START_DATA);
-    datahdr->dwDataAddr = htole32(addr);
-    datahdr->dwDataSize = htole32(size);
+    tag->dwDataAddr = htole32(addr);
+    tag->dwDataSize = htole32(size);
 
     push_back(d, sizeof(d));
 }
@@ -73,11 +72,11 @@ void PDLRequest::newPDLStart(uint32_t addr, uint32_t size)
 void PDLRequest::newPDLMidst(uint8_t *data, uint32_t len)
 {
     static int index = 0;
-    auto datahdr = PDL_DATA(_data);
+    auto tag = PDLTAG(_data);
 
     reinit(PDLREQ::PDL_CMD_MID_DATA);
-    datahdr->dwDataSize = htole32(len);
-    datahdr->dwDataSize = htole32(index++);
+    tag->dwDataAddr = htole32(index++);
+    tag->dwDataSize = htole32(len);
 
     push_back(data, len);
 }
@@ -95,26 +94,38 @@ void PDLRequest::newPDLExec()
     reinit(PDLREQ::PDL_CMD_EXEC_DATA);
 }
 
-uint8_t *PDLRequest::rawdata()
+uint8_t *PDLRequest::rawData()
 {
     return _data;
 }
 
-uint32_t PDLRequest::rawdatalen()
+uint32_t PDLRequest::rawDataLen()
 {
     return _reallen;
 }
 
 PDLREQ PDLRequest::type()
 {
-    auto datahdr = PDL_DATA(_data);
-    return static_cast<PDLREQ>(le32toh(datahdr->dwCmdType));
+    auto tag = PDLTAG(_data);
+    return static_cast<PDLREQ>(le32toh(tag->dwCmdType));
+}
+
+int PDLRequest::value()
+{
+    return static_cast<int>(type());
 }
 
 std::string PDLRequest::toString()
 {
-    auto datahdr = PDL_DATA(_data);
-    switch (static_cast<PDLREQ>(le32toh(datahdr->dwCmdType)))
+    auto tag = PDLTAG(_data);
+
+    if (_reallen == 0)
+        return "PDL_EMPTY_RESPONSE";
+
+    else if (_reallen < sizeof(pdl_pkt_header))
+        return "PDL_INCOMPLETE_RESPONSE";
+
+    switch (static_cast<PDLREQ>(le32toh(tag->dwCmdType)))
     {
     case PDLREQ::PDL_CMD_CONNECT:
         return "PDL_CMD_CONNECT";
@@ -152,23 +163,20 @@ std::string PDLRequest::argString()
     return "PDL1";
 }
 
-int PDLRequest::ordinal()
-{
-    return static_cast<int>(type());
-}
-
 bool PDLRequest::isDuplicate()
 {
     return type() == __request_type;
 }
 
-uint32_t PDLRequest::expect_len()
+bool PDLRequest::onWrite()
 {
-    return sizeof(pdl_pkt_header) + 4;
+    return type() == PDLREQ::PDL_CMD_MID_DATA;
 }
 
-uint8_t *rawdata();
-uint32_t rawdatalen();
+bool PDLRequest::onRead()
+{
+    return false;
+}
 
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
@@ -185,47 +193,25 @@ PDLResponse ::~PDLResponse()
     _data = nullptr;
 }
 
-void PDLResponse::reset()
+PDLREP PDLResponse::type()
 {
-    _reallen = 0;
-    memset(_data, 0, PDL_MAX_DATA_LEN);
+    auto tag = PDLTAG(_data);
+
+    return static_cast<PDLREP>(le32toh(tag->dwCmdType));
 }
 
-int PDLResponse::ordinal()
+int PDLResponse::value()
 {
     return static_cast<int>(type());
 }
 
-void PDLResponse::push_back(uint8_t *d, uint32_t len)
-{
-    std::copy(d, d + len, _data + _reallen);
-    _reallen += len;
-}
-
-PDLREP PDLResponse::type()
-{
-    auto datahdr = PDL_DATA(_data);
-
-    return static_cast<PDLREP>(le32toh(datahdr->dwCmdType));
-}
-
-uint8_t *PDLResponse::rawdata()
-{
-    return _data;
-}
-
-uint32_t PDLResponse::rawdatalen()
-{
-    return _reallen;
-}
-
 std::string PDLResponse::toString()
 {
-    auto datahdr = PDL_DATA(_data);
+    auto tag = PDLTAG(_data);
     if (_reallen < 12)
         return "PDL_INCOMPLETE_RESPONSE";
 
-    switch (static_cast<PDLREP>(le32toh(datahdr->dwCmdType)))
+    switch (static_cast<PDLREP>(le32toh(tag->dwCmdType)))
     {
     case PDLREP::PDL_RSP_ACK:
         return "";
@@ -256,4 +242,41 @@ std::string PDLResponse::toString()
     default:
         return "UNKNOW_RESPONSE";
     }
+}
+
+uint8_t *PDLResponse::rawData()
+{
+    return _data;
+}
+
+uint32_t PDLResponse::rawDataLen()
+{
+    return _reallen;
+}
+
+uint32_t PDLResponse::expectLength()
+{
+    auto hdr = PDLHEADER(_data);
+
+    if (_reallen >= sizeof(pdl_pkt_header))
+        return le32toh(hdr->nDataSize) + sizeof(pdl_pkt_header);
+    else
+        return 0;
+}
+
+uint32_t PDLResponse::minLength()
+{
+    return sizeof(pdl_pkt_header);
+}
+
+void PDLResponse::reset()
+{
+    _reallen = 0;
+    memset(_data, 0, PDL_MAX_DATA_LEN);
+}
+
+void PDLResponse::push_back(uint8_t *d, uint32_t len)
+{
+    std::copy(d, d + len, _data + _reallen);
+    _reallen += len;
 }
