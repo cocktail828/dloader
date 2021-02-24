@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 12:21:12
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 18:17:37
+ * @LastEditTime: 2021-02-24 14:46:16
  * @Description: file content
  */
 #include <iostream>
@@ -36,7 +36,7 @@ static configuration config;
 
 void usage(const char *prog)
 {
-    cerr << prog << " version " << VERSION_STR << endl;
+    cerr << prog << " version " << VERSION_STR << " build at: " << __DATE__ << endl;
     cerr << prog << " [config] [options]" << endl;
     cerr << "    -f pac_file           firmware file, with suffix of '.pac'" << endl;
     cerr << "    -d device             tty device, example(/dev/ttyUSB0)" << endl;
@@ -183,6 +183,9 @@ int main(int argc, char **argv)
     int opt;
     string config_path;
     bool flag_list_device = false;
+
+    if (argc < 2)
+        return 0;
 
     if (argc > 1 && argv[1][0] != '-')
     {
