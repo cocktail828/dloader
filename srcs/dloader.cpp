@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 12:21:12
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-24 14:46:16
+ * @LastEditTime: 2021-02-24 17:42:09
  * @Description: file content
  */
 #include <iostream>
@@ -34,18 +34,52 @@ using namespace std;
 
 static configuration config;
 
+#define ARGUMENTS                                                                                       \
+    _VAL('f', "pac_file", required_argument, "pacfile", "firmware file, with suffix of '.pac'")         \
+    _VAL('d', "device", required_argument, "ttydev", "tty device, example(/dev/ttyUSB0)")               \
+    _VAL('p', "port", required_argument, "usbport", "usb port, it's port string, see '-l' for details") \
+    _VAL('x', "exract", required_argument, "pacfile [dir]", "exract pac_file only")                     \
+    _VAL('F', "force", no_argument, "", "force update, even the device is in normal mode")              \
+    _VAL('l', "list", no_argument, "", "list devices")                                                  \
+    _VAL('h', "help", no_argument, "", "help message")
+
+static const char *shortopts = "f:d:p:x:Flh";
+#define _VAL(sarg, larg, haspara, ind, desc) \
+    option{larg, haspara, 0, sarg},
+const static struct option longopts[] = {
+    ARGUMENTS};
+#undef _VAL
+
+#define _VAL(sarg, larg, haspara, ind, desc)          \
+    do                                                \
+    {                                                 \
+        std::string line("  -");                      \
+        line += sarg;                                 \
+        line += ",--";                                \
+        line += larg;                                 \
+        line += "  ";                                 \
+        if (haspara == required_argument)             \
+        {                                             \
+            line += ind;                              \
+        }                                             \
+        else if (haspara == required_argument)        \
+        {                                             \
+            line += "[";                              \
+            line += ind;                              \
+            line += "]";                              \
+        }                                             \
+        line += std::string(30 - line.length(), ' '); \
+                                                      \
+        cerr << line << desc << endl;                 \
+    } while (0);
+
 void usage(const char *prog)
 {
     cerr << prog << " version " << VERSION_STR << " build at: " << __DATE__ << endl;
     cerr << prog << " [config] [options]" << endl;
-    cerr << "    -f pac_file           firmware file, with suffix of '.pac'" << endl;
-    cerr << "    -d device             tty device, example(/dev/ttyUSB0)" << endl;
-    cerr << "    -p usb port           usb port, it's port string, see '-l' for details" << endl;
-    cerr << "    -x pac_file [dir]     exract pac_file only" << endl;
-    cerr << "    -c chip_set           udx710(5g) or uix8910(4g)" << endl;
-    cerr << "    -l                    list devices" << endl;
-    cerr << "    -h                    help message" << endl;
+    ARGUMENTS
 }
+#undef _VAL
 
 /**
  * walk dir to find *.pac
@@ -88,6 +122,7 @@ string auto_find_pac(const string path)
     return choose_file;
 }
 
+static bool flag_force_update = false;
 void auto_find_dev(const string &port)
 {
     Device dev;
@@ -96,21 +131,46 @@ void auto_find_dev(const string &port)
 
     for (; try_time < max_try_time; try_time++)
     {
+        bool flag_find_normal_device = false;
         dev.reset();
         dev.scan(port);
 
-        for (auto iter = config.devs.begin(); iter != config.devs.end(); iter++)
+        for (auto iter = config.edl_devs.begin(); iter != config.edl_devs.end(); iter++)
         {
-            auto d = dev.get_interface(iter->usbid, iter->usbif).ttyusb;
-            if (!dev.exist(iter->usbid, iter->usbif))
+            cerr << "----------------" << iter->ifno << endl;
+            auto d = dev.get_interface(iter->vid, iter->pid, iter->ifno).ttyusb;
+            if (!dev.exist(iter->vid, iter->pid, iter->ifno))
+                continue;
+
+            iter->use_flag = true;
+            config.device = d.empty() ? "" : ("/dev/" + d);
+            config.chipset = iter->chipset;
+            return;
+        }
+
+        for (auto iter = config.normal_devs.begin(); iter != config.normal_devs.end(); iter++)
+        {
+            auto d = dev.get_interface(iter->vid, iter->pid, iter->ifno).ttyusb;
+            if (!dev.exist(iter->vid, iter->pid, iter->ifno))
                 continue;
             iter->use_flag = true;
 
             config.device = d.empty() ? "" : ("/dev/" + d);
             config.chipset = iter->chipset;
-            return;
+            flag_find_normal_device = true;
+            break;
         }
-        cerr << "find no support device" << endl;
+
+        cerr << "find no support device" << (flag_find_normal_device ? ", but find a device in normal mode" : "") << endl;
+        if (flag_find_normal_device && flag_force_update)
+        {
+            std::string edl_command("at+qdownload=1\r\n");
+            SerialPort serial(config.device);
+
+            if (serial.isOpened())
+                serial.sendSync((uint8_t *)(edl_command.c_str()), edl_command.length());
+        }
+
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 }
@@ -138,20 +198,28 @@ void load_config(const string &conf)
             exit(0);
         }
 
-        if (key == "dev")
+        if (key == "edldev")
         {
-            char phy[32];
-            char idstr[32];
-            char ifstr[32];
+            char phylink[32];
             char chipstr[32];
-            sscanf(val.c_str(), "%[^:]:%[^,],%[^,],%s", phy, idstr, ifstr, chipstr);
-            config.devs.emplace_back(support_dev{
-                false,
-                phy,
-                idstr,
-                ifstr,
-                chipstr,
-            });
+            support_dev dev;
+
+            sscanf(val.c_str(), "%[^,],%04x,%04x,%d,%s", phylink, &dev.vid, &dev.pid, &dev.ifno, chipstr);
+            dev.chipset = chipstr;
+            dev.phylink = phylink;
+            config.edl_devs.push_back(dev);
+            cerr << "----------------" << dev.vid << endl;
+        }
+        else if (key == "normaldev")
+        {
+            char phylink[32];
+            char chipstr[32];
+            support_dev dev;
+
+            sscanf(val.c_str(), "%[^,],%04x,%04x,%d,%s", phylink, &dev.vid, &dev.pid, &dev.ifno, chipstr);
+            dev.chipset = chipstr;
+            dev.phylink = phylink;
+            config.normal_devs.push_back(dev);
         }
         else if (key == "pac_path")
         {
@@ -182,21 +250,17 @@ int main(int argc, char **argv)
 {
     int opt;
     string config_path;
-    bool flag_list_device = false;
+    int longidx = 0;
 
     if (argc < 2)
         return 0;
 
     if (argc > 1 && argv[1][0] != '-')
-    {
         config_path = argv[1];
-        argc--;
-        argv++;
-    }
 
     load_config(config_path.empty() ? DEFAULT_CONFIG : config_path);
 
-    while ((opt = getopt(argc, argv, "hf:x:p:ld:c:")) > 0)
+    while ((opt = getopt_long(argc, argv, shortopts, longopts, &longidx)) > 0)
     {
         switch (opt)
         {
@@ -208,16 +272,8 @@ int main(int argc, char **argv)
             config.device = optarg;
             break;
 
-        case 'c':
-            config.chipset = optarg;
-            break;
-
         case 'p':
             config.usb_physical_port = optarg;
-            break;
-
-        case 'l':
-            flag_list_device = true;
             break;
 
         case 'x':
@@ -232,18 +288,23 @@ int main(int argc, char **argv)
             }
             return 0;
         }
+
+        case 'F':
+            flag_force_update = true;
+            break;
+
+        case 'l':
+        {
+            Device dev;
+            dev.scan(config.usb_physical_port);
+            return 0;
+        }
+
         case 'h':
         default:
             usage(argv[0]);
             return 0;
         }
-    }
-
-    if (flag_list_device)
-    {
-        Device dev;
-        dev.scan(config.usb_physical_port);
-        return 0;
     }
 
     if (!config.pac_path.empty() && is_dir(config.pac_path))
@@ -255,8 +316,7 @@ int main(int argc, char **argv)
     cerr << "choose device: " << config.device << endl;
     cerr << "choose pac: " << config.pac_path << endl;
     cerr << "chip series is: " << config.chipset << endl;
-    if (!config.chipset.empty() &&
-        !config.device.empty() && !access(config.device.c_str(), F_OK) &&
+    if (!config.device.empty() && !access(config.device.c_str(), F_OK) &&
         !config.pac_path.empty() && !access(config.device.c_str(), F_OK))
         return do_update(config.chipset);
 

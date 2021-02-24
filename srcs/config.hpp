@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 15:51:43
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 14:22:15
+ * @LastEditTime: 2021-02-24 17:34:12
  * @Description: file content
  */
 #ifndef __CONFIG__
@@ -14,10 +14,16 @@
 struct support_dev
 {
     bool use_flag;
-    std::string phy;
-    std::string usbid;
-    std::string usbif;
+    int vid;
+    int pid;
+    int ifno;
+    std::string phylink;
     std::string chipset;
+
+    support_dev()
+        : use_flag(false),
+          vid(0), pid(0), ifno(0),
+          phylink(""), chipset("") {}
 };
 
 struct configuration
@@ -27,7 +33,8 @@ struct configuration
     std::string pac_path;
     std::string usb_physical_port;
     bool reset_normal;
-    std::vector<support_dev> devs;
+    std::vector<support_dev> edl_devs;
+    std::vector<support_dev> normal_devs;
 
     configuration() : device(""),
                       chipset(""),

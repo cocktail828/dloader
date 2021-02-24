@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 14:55:50
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-10 14:43:29
+ * @LastEditTime: 2021-02-24 16:54:25
  * @Description: file content
  */
 #ifndef __DEVICE__
@@ -47,10 +47,10 @@ public:
 
     void reset();
     int scan(const std::string &usbport);
-    bool exist(const std::string &idstr, const std::string &ifstr);
     bool exist(int vid, int pid, int cls, int scls, int proto);
-    interface get_interface(const std::string &idstr, const std::string &ifstr);
+    bool exist(int vid, int pid, int ifno);
     interface get_interface(int vid, int pid, int cls, int scls, int proto);
+    interface get_interface(int vid, int pid, int ifno);
 };
 
 #endif //__DEVICE__

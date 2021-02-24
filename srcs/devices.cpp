@@ -186,14 +186,16 @@ int Device::scan(const std::string &usbport)
     return 0;
 }
 
-bool Device::exist(const std::string &idstr, const std::string &ifstr)
+bool Device::exist(int vid, int pid, int ifno)
 {
     for (auto iter = m_usbdevs.begin(); iter != m_usbdevs.end(); iter++)
     {
+        if (iter->vid != vid || iter->pid != pid)
+            continue;
+
         for (auto iter1 = iter->ifaces.begin(); iter1 != iter->ifaces.end(); iter1++)
         {
-            if (iter1->modalias.find(idstr) != std::string::npos &&
-                iter1->modalias.find(ifstr) != std::string::npos)
+            if (iter1->ifno == ifno)
                 return true;
         }
     }
@@ -232,14 +234,16 @@ interface Device::get_interface(int vid, int pid, int cls, int scls, int proto)
     return interface();
 }
 
-interface Device::get_interface(const std::string &idstr, const std::string &ifstr)
+interface Device::get_interface(int vid, int pid, int ifno)
 {
     for (auto iter = m_usbdevs.begin(); iter != m_usbdevs.end(); iter++)
     {
+        if (iter->vid != vid || iter->pid != pid)
+            continue;
+
         for (auto iter1 = iter->ifaces.begin(); iter1 != iter->ifaces.end(); iter1++)
         {
-            if (iter1->modalias.find(idstr) != std::string::npos &&
-                iter1->modalias.find(ifstr) != std::string::npos)
+            if (iter1->ifno == ifno)
                 return *iter1;
         }
     }
