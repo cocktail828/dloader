@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:36:51
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-24 10:51:13
+ * @LastEditTime: 2021-02-24 11:23:56
  * @Description: file content
  */
 
@@ -117,13 +117,11 @@ bool UpgradeManager::talk(CMDRequest *req, CMDResponse *resp, int timeout)
 {
     resp->reset();
     verbose(req);
-    // if (!serial.sendSync(req->rawData(), req->rawDataLen()))
-    // {
-    //     std::cerr << "sendSync failed, req=" << req->toString() << std::endl;
-    //     return false;
-    // }
-    serial.sendSync(req->rawData(), 8);
-    serial.sendSync(req->rawData() + 8, 12);
+    if (!serial.sendSync(req->rawData(), req->rawDataLen()))
+    {
+        std::cerr << "sendSync failed, req=" << req->toString() << std::endl;
+        return false;
+    }
 
     do
     {
