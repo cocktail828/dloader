@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:36:51
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-25 13:41:04
+ * @LastEditTime: 2021-02-25 15:23:55
  * @Description: file content
  */
 
@@ -255,9 +255,14 @@ void UpgradeManager::checksum(XMLFileInfo &info)
     uint32_t fsz = firmware.member_file_size(info.fileid);
     uint16_t crc = 0;
     uint32_t cs = 0;
+    uint32_t skip = 4;
+    uint8_t magic[] = {0xdf, 0x04}; // do not ask me why, I do not know
 
-    firmware.read(fin, _data, 2);
-    fsz -= 2;
+    firmware.read(fin, _data, skip);
+    fsz -= skip;
+
+    crc = request.crc16NV(crc, magic, sizeof(magic));
+    cs += magic[0] + magic[1];
     do
     {
         uint32_t sz = (fsz > 4096) ? 4096 : fsz;
