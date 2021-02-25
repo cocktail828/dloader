@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-24 10:18:19
+ * @LastEditTime: 2021-02-25 15:33:29
  * @Description: file content
  */
 #include <iostream>
@@ -242,7 +242,11 @@ void FDLRequest::reinit(REQTYPE req)
 {
     cmd_header *hdr = FRAMEHDR(_data);
 
-    __request_type = type();
+    if (_reallen == 1)
+        __request_type = REQTYPE::BSL_CMD_CHECK_BAUD;
+    else
+        __request_type = type();
+
     memset(_data, 0, MAX_DATA_LEN);
 
     hdr->magic = MAGIC_7e;

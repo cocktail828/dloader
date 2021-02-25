@@ -195,7 +195,7 @@ int Device::scan(const std::string &usbport)
     {
         std::cerr << "Bus " << std::dec << iter->busno << ".Port " << iter->usbport
                   << ", Dev " << iter->devno
-                  << ", ID " << iter->vid << ":" << iter->pid
+                  << ", ID " << std::hex << iter->vid << ":" << iter->pid
                   << ", Port " << iter->usbport
                   << ", Path " << iter->devpath << std::endl;
         for (auto iter1 = iter->ifaces.begin(); iter1 != iter->ifaces.end(); iter1++)
