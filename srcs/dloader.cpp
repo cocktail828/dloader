@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 12:21:12
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-24 17:42:09
+ * @LastEditTime: 2021-02-25 12:50:21
  * @Description: file content
  */
 #include <iostream>
@@ -20,9 +20,12 @@ extern "C"
 
 #include "firmware.hpp"
 #include "upgrade_manager.hpp"
+#include "usbfs.hpp"
+#include "serial.hpp"
 #include "devices.hpp"
 #include "config.hpp"
 #include "common.hpp"
+#include "scopeguard.hpp"
 
 using namespace std;
 
@@ -131,45 +134,56 @@ void auto_find_dev(const string &port)
 
     for (; try_time < max_try_time; try_time++)
     {
-        bool flag_find_normal_device = false;
         dev.reset();
         dev.scan(port);
 
-        for (auto iter = config.edl_devs.begin(); iter != config.edl_devs.end(); iter++)
-        {
-            cerr << "----------------" << iter->ifno << endl;
-            auto d = dev.get_interface(iter->vid, iter->pid, iter->ifno).ttyusb;
-            if (!dev.exist(iter->vid, iter->pid, iter->ifno))
-                continue;
-
-            iter->use_flag = true;
-            config.device = d.empty() ? "" : ("/dev/" + d);
-            config.chipset = iter->chipset;
-            return;
-        }
-
+        // find normal device, try switch mode if set '--force'
         for (auto iter = config.normal_devs.begin(); iter != config.normal_devs.end(); iter++)
         {
-            auto d = dev.get_interface(iter->vid, iter->pid, iter->ifno).ttyusb;
-            if (!dev.exist(iter->vid, iter->pid, iter->ifno))
-                continue;
-            iter->use_flag = true;
+            if (dev.exist(iter->vid, iter->pid, iter->ifno) && flag_force_update)
+            {
+                auto intf = dev.get_interface(iter->vid, iter->pid, iter->ifno);
 
-            config.device = d.empty() ? "" : ("/dev/" + d);
-            config.chipset = iter->chipset;
-            flag_find_normal_device = true;
-            break;
+                if (!intf.ttyusb.empty())
+                {
+                    std::string ttydev("/dev");
+                    std::string edl_command("at+qdownload=1\r\n");
+                    SerialPort serial(ttydev + intf.ttyusb);
+
+                    serial.sendSync((uint8_t *)(edl_command.c_str()), edl_command.length());
+                    break;
+                }
+            }
         }
 
-        cerr << "find no support device" << (flag_find_normal_device ? ", but find a device in normal mode" : "") << endl;
-        if (flag_find_normal_device && flag_force_update)
+        // find edl device
+        for (auto iter = config.edl_devs.begin(); iter != config.edl_devs.end(); iter++)
         {
-            std::string edl_command("at+qdownload=1\r\n");
-            SerialPort serial(config.device);
+            if (dev.exist(iter->vid, iter->pid, iter->ifno))
+            {
+                auto intf = dev.get_interface(iter->vid, iter->pid, iter->ifno);
 
-            if (serial.isOpened())
-                serial.sendSync((uint8_t *)(edl_command.c_str()), edl_command.length());
+                iter->use_flag = true;
+                if (intf.ttyusb.empty())
+                {
+                    char buf[128] = {'\0'};
+                    auto usbdev = dev.get_usbdevice(iter->vid, iter->pid);
+
+                    snprintf(buf, sizeof(buf), "/dev/bus/usb/%03d/%03d", usbdev.busno, usbdev.devno);
+                    config.device = buf;
+                    config.endpoint_in = intf.endpoint_in;
+                    config.endpoint_out = intf.endpoint_out;
+                    config.interface_no = intf.interface_no;
+                }
+                else
+                    config.device = "/dev/" + intf.ttyusb;
+
+                config.chipset = iter->chipset;
+                return;
+            }
         }
+
+        cerr << "find no support device" << endl;
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
@@ -208,7 +222,6 @@ void load_config(const string &conf)
             dev.chipset = chipstr;
             dev.phylink = phylink;
             config.edl_devs.push_back(dev);
-            cerr << "----------------" << dev.vid << endl;
         }
         else if (key == "normaldev")
         {
@@ -236,9 +249,9 @@ void load_config(const string &conf)
     }
 }
 
-int do_update(const string &name)
+int do_update(const string &name, USBStream *us)
 {
-    UpgradeManager upmgr(config.device, config.pac_path);
+    UpgradeManager upmgr(config.device, config.pac_path, us);
 
     if (!upmgr.prepare())
         return -1;
@@ -251,6 +264,14 @@ int main(int argc, char **argv)
     int opt;
     string config_path;
     int longidx = 0;
+    bool flag_list_device = false;
+    USBStream *us = nullptr;
+
+    ON_SCOPE_EXIT
+    {
+        if (us)
+            delete us;
+    };
 
     if (argc < 2)
         return 0;
@@ -294,17 +315,21 @@ int main(int argc, char **argv)
             break;
 
         case 'l':
-        {
-            Device dev;
-            dev.scan(config.usb_physical_port);
-            return 0;
-        }
+            flag_list_device = true;
+            break;
 
         case 'h':
         default:
             usage(argv[0]);
             return 0;
         }
+    }
+
+    if (flag_list_device)
+    {
+        Device dev;
+        dev.scan(config.usb_physical_port);
+        return 0;
     }
 
     if (!config.pac_path.empty() && is_dir(config.pac_path))
@@ -316,9 +341,18 @@ int main(int argc, char **argv)
     cerr << "choose device: " << config.device << endl;
     cerr << "choose pac: " << config.pac_path << endl;
     cerr << "chip series is: " << config.chipset << endl;
+
+    if (!config.device.empty())
+    {
+        if (config.device.find("/dev/bus/usb") != std::string::npos)
+            us = new USBFS(config.device, config.interface_no, config.endpoint_in, config.endpoint_out);
+        else
+            us = new SerialPort(config.device);
+    }
+
     if (!config.device.empty() && !access(config.device.c_str(), F_OK) &&
-        !config.pac_path.empty() && !access(config.device.c_str(), F_OK))
-        return do_update(config.chipset);
+        !config.pac_path.empty() && !access(config.pac_path.c_str(), F_OK))
+        return do_update(config.chipset, us);
 
     cerr << "find no support device or no pac file" << endl;
     return -1;

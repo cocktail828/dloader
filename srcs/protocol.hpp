@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-23 18:19:08
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-24 10:08:45
+ * @LastEditTime: 2021-02-25 10:14:56
  * @Description: file content
  */
 #ifndef __PROTOCOL__
@@ -27,6 +27,8 @@ public:
 class CMDResponse
 {
 public:
+    CMDResponse(){};
+    virtual ~CMDResponse(){};
     virtual uint8_t *rawData() = 0;
     virtual uint32_t rawDataLen() = 0;
     virtual uint32_t expectLength() = 0;

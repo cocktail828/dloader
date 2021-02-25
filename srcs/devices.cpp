@@ -14,33 +14,44 @@ extern "C"
 
 #include "devices.hpp"
 
-static std::string find_tty_device(const std::string _dirname)
+static std::string find_file_with_prefix(const std::string &_dirname, const std::string &_prefix)
 {
     DIR *pdir = NULL;
     struct dirent *ent = NULL;
-    std::string dirname(_dirname + "/tty");
-    std::string ttydev("");
-
-    if (access(dirname.c_str(), F_OK))
-        dirname = _dirname;
+    std::string dirname(_dirname);
+    std::string filename("");
 
     pdir = opendir(dirname.c_str());
     if (!pdir)
-        return ttydev;
+        return filename;
 
     while ((ent = readdir(pdir)) != NULL)
     {
         if (ent->d_name[0] == '.')
             continue;
 
-        if (!strncmp(ent->d_name, "ttyUSB", 6) ||
-            !strncmp(ent->d_name, "ttyACM", 6))
+        if (!strncmp(ent->d_name, _prefix.c_str(), _prefix.length()))
         {
-            ttydev = ent->d_name;
+            filename = ent->d_name;
             break;
         }
     }
     closedir(pdir);
+
+    return filename;
+}
+
+static std::string find_tty_device(const std::string &_dirname)
+{
+    std::string dirname(_dirname + "/tty");
+    std::string ttydev;
+
+    if (access(dirname.c_str(), F_OK))
+        dirname = _dirname;
+
+    ttydev = find_file_with_prefix(dirname, "ttyUSB");
+    if (ttydev.empty())
+        ttydev = find_file_with_prefix(dirname, "ttyACM");
 
     return ttydev;
 }
@@ -71,6 +82,19 @@ static int file_get_xint(const std::string &file)
     return line;
 }
 
+static int file_get_int(const std::string &file)
+{
+    int line;
+    std::ifstream fin(file);
+
+    if (!fin.is_open())
+        return -1;
+
+    fin >> std::dec >> line;
+    fin.close();
+    return line;
+}
+
 void Device::reset()
 {
     m_usbdevs.clear();
@@ -86,6 +110,9 @@ int Device::scan_iface(int vid, int pid, std::string usbport, std::string rootdi
     udev.pid = pid;
     udev.usbport = usbport;
     udev.devpath = rootdir;
+    udev.busno = file_get_int(rootdir + "/busnum");
+    udev.devno = file_get_int(rootdir + "/devnum");
+
     pdir = opendir(rootdir.c_str());
     if (!pdir)
         return -1;
@@ -95,29 +122,29 @@ int Device::scan_iface(int vid, int pid, std::string usbport, std::string rootdi
         std::string file;
         interface iface;
         std::string path(rootdir);
+        std::string endpoint;
         if (ent->d_name[0] == '.')
             continue;
 
         path += "/" + std::string(ent->d_name);
 
-        file = std::string(path) + "/bInterfaceClass";
-        iface.cls = file_get_xint(file);
-
-        file = std::string(path) + "/bInterfaceSubClass";
-        iface.subcls = file_get_xint(file);
-
-        file = std::string(path) + "/bInterfaceProtocol";
-        iface.proto = file_get_xint(file);
-
-        file = std::string(path) + "/bInterfaceNumber";
-        iface.ifno = file_get_xint(file);
-
-        file = std::string(path) + "/modalias";
-        iface.modalias = file_get_line(file);
+        iface.cls = file_get_xint(path + "/bInterfaceClass");
+        iface.subcls = file_get_xint(path + "/bInterfaceSubClass");
+        iface.proto = file_get_xint(path + "/bInterfaceProtocol");
+        iface.interface_no = file_get_xint(path + "/bInterfaceNumber");
+        iface.modalias = file_get_line(path + "/modalias");
 
         iface.ttyusb = find_tty_device(path);
 
-        if (iface.cls == -1 || iface.subcls == -1 || iface.proto == -1 || iface.ifno == -1)
+        endpoint = find_file_with_prefix(path, "ep_8");
+        if (!endpoint.empty())
+            iface.endpoint_in = strtoul(endpoint.substr(3).c_str(), NULL, 16);
+
+        endpoint = find_file_with_prefix(path, "ep_0");
+        if (!endpoint.empty())
+            iface.endpoint_out = strtoul(endpoint.substr(3).c_str(), NULL, 16);
+
+        if (iface.cls == -1 || iface.subcls == -1 || iface.proto == -1 || iface.interface_no == -1)
             continue;
 
         udev.ifaces.push_back(iface);
@@ -151,12 +178,10 @@ int Device::scan(const std::string &usbport)
             continue;
 
         path += "/" + std::string(ent->d_name);
-        file = std::string(path) + "/idVendor";
-        _vid = file_get_xint(file);
-        file = std::string(path) + "/idProduct";
-        _pid = file_get_xint(file);
-        file = std::string(path) + "/devpath";
-        _usbport = file_get_line(file);
+
+        _vid = file_get_xint(path + "/idVendor");
+        _pid = file_get_xint(path + "/idProduct");
+        _usbport = file_get_line(path + "/devpath");
 
         if (!usbport.empty() && usbport != _usbport)
             continue;
@@ -168,22 +193,38 @@ int Device::scan(const std::string &usbport)
 
     for (auto iter = m_usbdevs.begin(); iter != m_usbdevs.end(); iter++)
     {
-        std::cerr << "Device ID " << std::hex << iter->vid << ":" << iter->pid
+        std::cerr << "Bus " << std::dec << iter->busno << ".Port " << iter->usbport
+                  << ", Dev " << iter->devno
+                  << ", ID " << iter->vid << ":" << iter->pid
                   << ", Port " << iter->usbport
                   << ", Path " << iter->devpath << std::endl;
         for (auto iter1 = iter->ifaces.begin(); iter1 != iter->ifaces.end(); iter1++)
         {
-            std::cerr << "  |__ If " << iter1->ifno
+            std::cerr << "  |_ If " << std::hex << iter1->interface_no
                       << ", Class=" << iter1->cls
                       << ", SubClass=" << iter1->subcls
                       << ", Proto=" << iter1->proto
+                      << ", EPIn=" << iter1->endpoint_in
+                      << ", EPout=" << iter1->endpoint_out
                       << ", TTY=" << iter1->ttyusb
-                      << ", MODALIAS=" << iter1->modalias
-                      << std::endl;
+                      //   << ", MODALIAS=" << iter1->modalias
+                      << std::dec << std::endl;
         }
     }
 
     return 0;
+}
+
+bool Device::exist(int vid, int pid)
+{
+    for (auto iter = m_usbdevs.begin(); iter != m_usbdevs.end(); iter++)
+    {
+        if (iter->vid != vid || iter->pid != pid)
+            continue;
+
+        return true;
+    }
+    return false;
 }
 
 bool Device::exist(int vid, int pid, int ifno)
@@ -195,7 +236,7 @@ bool Device::exist(int vid, int pid, int ifno)
 
         for (auto iter1 = iter->ifaces.begin(); iter1 != iter->ifaces.end(); iter1++)
         {
-            if (iter1->ifno == ifno)
+            if (iter1->interface_no == ifno)
                 return true;
         }
     }
@@ -218,20 +259,16 @@ bool Device::exist(int vid, int pid, int cls, int scls, int proto)
     return false;
 }
 
-interface Device::get_interface(int vid, int pid, int cls, int scls, int proto)
+usbdev Device::get_usbdevice(int vid, int pid)
 {
     for (auto iter = m_usbdevs.begin(); iter != m_usbdevs.end(); iter++)
     {
         if (iter->vid != vid || iter->pid != pid)
             continue;
 
-        for (auto iter1 = iter->ifaces.begin(); iter1 != iter->ifaces.end(); iter1++)
-        {
-            if (iter1->cls == cls && iter1->subcls == scls && iter1->proto == proto)
-                return *iter1;
-        }
+        return *iter;
     }
-    return interface();
+    return usbdev();
 }
 
 interface Device::get_interface(int vid, int pid, int ifno)
@@ -243,7 +280,23 @@ interface Device::get_interface(int vid, int pid, int ifno)
 
         for (auto iter1 = iter->ifaces.begin(); iter1 != iter->ifaces.end(); iter1++)
         {
-            if (iter1->ifno == ifno)
+            if (iter1->interface_no == ifno)
+                return *iter1;
+        }
+    }
+    return interface();
+}
+
+interface Device::get_interface(int vid, int pid, int cls, int scls, int proto)
+{
+    for (auto iter = m_usbdevs.begin(); iter != m_usbdevs.end(); iter++)
+    {
+        if (iter->vid != vid || iter->pid != pid)
+            continue;
+
+        for (auto iter1 = iter->ifaces.begin(); iter1 != iter->ifaces.end(); iter1++)
+        {
+            if (iter1->cls == cls && iter1->subcls == scls && iter1->proto == proto)
                 return *iter1;
         }
     }

@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:33
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-24 10:41:13
+ * @LastEditTime: 2021-02-25 11:16:06
  * @Description: file content
  */
 #ifndef __UPDATE__
@@ -12,7 +12,7 @@
 
 #include "fdl.hpp"
 #include "pdl.hpp"
-#include "serial.hpp"
+#include "usbcom.hpp"
 #include "firmware.hpp"
 
 /**
@@ -26,7 +26,7 @@
 class UpgradeManager
 {
 private:
-    SerialPort serial;
+    USBStream *usbstream;
     FDLRequest request;
     FDLResponse response;
     Firmware firmware;
@@ -44,7 +44,7 @@ private:
     void checksum(XMLFileInfo &info);
 
 public:
-    UpgradeManager(const std::string &tty, const std::string &pac);
+    UpgradeManager(const std::string &tty, const std::string &pac, USBStream *us);
     ~UpgradeManager();
 
     // do some preparetion, parser xml, init tty or something

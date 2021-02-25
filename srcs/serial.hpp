@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:19
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 08:48:58
+ * @LastEditTime: 2021-02-25 13:06:50
  * @Description: file content
  */
 #ifndef __SERIAL__
@@ -12,6 +12,8 @@
 #include <string>
 
 #include <termios.h>
+
+#include "usbcom.hpp"
 
 #undef _VALUES
 #define _VALUES        \
@@ -46,28 +48,21 @@ static int BaudARR[] = {_VALUES};
 static const char *BaudARRSTR[] = {_VALUES};
 #undef _VAL
 
-class SerialPort
+class SerialPort final : public USBStream
 {
 private:
-    const int max_buf_size = 4 * 1024;
-    std::string ttydev;
     int ttyfd;
     int epfd;
-    uint8_t *buffer;
-    uint32_t bufsize;
 
 public:
     SerialPort(const std::string &tty);
     ~SerialPort();
 
+    void setBaud(BAUD);
+    void init();
     bool isOpened();
-    void setBaud(BAUD baud);
-
-    bool sendSync(uint8_t *data, uint32_t len);
+    bool sendSync(uint8_t *data, uint32_t len, uint32_t timeout = 0);
     bool recvSync(uint32_t timeout);
-
-    uint8_t *data();
-    uint32_t datalen();
 };
 
 #endif // __SERIAL__

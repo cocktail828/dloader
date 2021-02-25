@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:36:51
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-24 11:23:56
+ * @LastEditTime: 2021-02-25 13:41:04
  * @Description: file content
  */
 
@@ -16,7 +16,6 @@ extern "C"
 
 #include "pdl.hpp"
 #include "fdl.hpp"
-#include "serial.hpp"
 #include "upgrade_manager.hpp"
 #include "scopeguard.hpp"
 
@@ -31,8 +30,9 @@ bool string_case_cmp(const std::string &s1, const std::string &s2)
 }
 
 UpgradeManager::UpgradeManager(const std::string &tty,
-                               const std::string &pac)
-    : serial(tty), firmware(pac), pac(pac)
+                               const std::string &pac,
+                               USBStream *us)
+    : usbstream(us), firmware(pac), pac(pac)
 {
     int maxlen = FRAMESZ_DATA > FRAMESZ_FDL ? FRAMESZ_DATA : FRAMESZ_FDL;
     _data = new (std::nothrow) uint8_t[maxlen];
@@ -117,7 +117,7 @@ bool UpgradeManager::talk(CMDRequest *req, CMDResponse *resp, int timeout)
 {
     resp->reset();
     verbose(req);
-    if (!serial.sendSync(req->rawData(), req->rawDataLen()))
+    if (!usbstream->sendSync(req->rawData(), req->rawDataLen()))
     {
         std::cerr << "sendSync failed, req=" << req->toString() << std::endl;
         return false;
@@ -125,12 +125,12 @@ bool UpgradeManager::talk(CMDRequest *req, CMDResponse *resp, int timeout)
 
     do
     {
-        if (!serial.recvSync(timeout))
+        if (!usbstream->recvSync(timeout))
         {
             std::cerr << "recvSync failed, req=" << req->toString() << std::endl;
             return false;
         }
-        resp->push_back(serial.data(), serial.datalen());
+        resp->push_back(usbstream->data(), usbstream->datalen());
 
         if (resp->rawDataLen() < resp->minLength())
             continue;
@@ -147,9 +147,8 @@ bool UpgradeManager::talk(CMDRequest *req, CMDResponse *resp, int timeout)
 
 int UpgradeManager::connect()
 {
-    int max_try = 10;
+    int max_try = 5;
 
-    serial.setBaud(BAUD::BAUD115200);
     do
     {
         usleep(1000);
