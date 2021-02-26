@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-25 09:59:00
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-26 14:05:58
+ * @LastEditTime: 2021-02-26 16:15:05
  * @Description: file content
  */
 #ifndef __USBCOM__
@@ -10,10 +10,10 @@
 
 #include <string>
 
-enum class PHYLINK
+enum class USBLINK
 {
-    PHY_TTY,
-    PHY_USBFS,
+    USBLINK_TTY,
+    USBLINK_USBFS,
 };
 
 class USBStream
@@ -23,10 +23,10 @@ protected:
     std::string usb_device;
     uint8_t *_data;
     uint32_t _reallen;
-    PHYLINK phylink;
+    USBLINK phylink;
 
 public:
-    USBStream(const std::string &dev, PHYLINK phy)
+    USBStream(const std::string &dev, USBLINK phy)
         : usb_device(dev), _reallen(0), phylink(phy)
     {
         _data = new (std::nothrow) uint8_t[max_buf_size];
@@ -39,7 +39,7 @@ public:
         _data = nullptr;
     }
 
-    virtual PHYLINK physicalLink() final { return phylink; }
+    virtual USBLINK physicalLink() final { return phylink; }
     virtual bool isOpened() = 0;
     virtual bool sendSync(uint8_t *data, uint32_t len, uint32_t timeout) = 0;
     virtual bool recvSync(uint32_t timeout) = 0;

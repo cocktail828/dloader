@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-25 09:58:10
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-26 14:34:46
+ * @LastEditTime: 2021-02-26 16:28:34
  * @Description: file content
  */
 #include <iostream>
@@ -27,7 +27,7 @@ extern "C"
 #include "usbfs.hpp"
 
 USBFS::USBFS(const std::string &devpath, int ifno, int epin, int epout)
-    : USBStream(devpath, PHYLINK::PHY_USBFS), interface_no(ifno), endpoint_in(epin), endpoint_out(epout)
+    : USBStream(devpath, USBLINK::USBLINK_USBFS), interface_no(ifno), endpoint_in(epin), endpoint_out(epout)
 {
     usbfd = open(devpath.c_str(), O_RDWR | O_NOCTTY);
     if (usbfd < 0)

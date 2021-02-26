@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 15:51:43
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-26 11:38:46
+ * @LastEditTime: 2021-02-26 16:22:05
  * @Description: file content
  */
 #ifndef __CONFIG__
@@ -11,17 +11,19 @@
 #include <string>
 #include <vector>
 
-struct support_dev
+enum class PHYLINK
 {
-  bool use_flag;
+  PHYLINK_USB,
+  PHYLINK_PCIE,
+};
+
+struct usbdev_info
+{
   int vid;
   int pid;
   int ifno;
-  std::string phylink;
-
-  support_dev()
-      : use_flag(false),
-        vid(0), pid(0), ifno(0), phylink("") {}
+  PHYLINK phylink;
+  std::string device; // ttydev or usbpath
 };
 
 struct configuration
@@ -33,8 +35,8 @@ struct configuration
   std::string pac_path;
   std::string usb_physical_port;
   bool reset_normal;
-  std::vector<support_dev> edl_devs;
-  std::vector<support_dev> normal_devs;
+  std::vector<usbdev_info> edl_devs;
+  std::vector<usbdev_info> normal_devs;
 
   configuration()
       : endpoint_in(0),

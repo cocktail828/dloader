@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 12:21:12
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-26 14:27:34
+ * @LastEditTime: 2021-02-26 16:48:24
  * @Description: file content
  */
 #include <iostream>
@@ -16,6 +16,7 @@ extern "C"
 #include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 }
 
 #include "firmware.hpp"
@@ -37,43 +38,44 @@ using namespace std;
 
 static configuration config;
 
-#define ARGUMENTS                                                                                       \
-    _VAL('f', "pac_file", required_argument, "pacfile", "firmware file, with suffix of '.pac'")         \
-    _VAL('d', "device", required_argument, "ttydev", "tty device, example(/dev/ttyUSB0)")               \
-    _VAL('p', "port", required_argument, "usbport", "usb port, it's port string, see '-l' for details") \
-    _VAL('x', "exract", required_argument, "pacfile [dir]", "exract pac_file only")                     \
-    _VAL('F', "force", no_argument, "", "force update, even the device is in normal mode")              \
-    _VAL('l', "list", no_argument, "", "list devices")                                                  \
+#define ARGUMENTS                                                                                         \
+    _VAL('f', "pac_file", required_argument, "pacfile", "firmware file, with suffix of '.pac'")           \
+    _VAL('d', "device", required_argument, "ttydev", "tty device, example(/dev/ttyUSB0)")                 \
+    _VAL('p', "port", required_argument, "usbport", "usb port, a string, refer to '-l' for more details") \
+    _VAL('x', "exract", required_argument, "pacfile [dir]", "exract pac_file only")                       \
+    _VAL('F', "force", no_argument, "", "force update, even the device is in normal mode")                \
+    _VAL('l', "list", no_argument, "", "list devices")                                                    \
+    _VAL('q', "quiet", no_argument, "[logfile]", "sync log into a file instead of terminal")              \
     _VAL('h', "help", no_argument, "", "help message")
 
-static const char *shortopts = "f:d:p:x:Flh";
+static const char *shortopts = "f:d:p:x:Flqh";
 #define _VAL(sarg, larg, haspara, ind, desc) \
     option{larg, haspara, 0, sarg},
 const static struct option longopts[] = {
     ARGUMENTS};
 #undef _VAL
 
-#define _VAL(sarg, larg, haspara, ind, desc)          \
-    do                                                \
-    {                                                 \
-        std::string line("  -");                      \
-        line += sarg;                                 \
-        line += ",--";                                \
-        line += larg;                                 \
-        line += "  ";                                 \
-        if (haspara == required_argument)             \
-        {                                             \
-            line += ind;                              \
-        }                                             \
-        else if (haspara == required_argument)        \
-        {                                             \
-            line += "[";                              \
-            line += ind;                              \
-            line += "]";                              \
-        }                                             \
-        line += std::string(30 - line.length(), ' '); \
-                                                      \
-        cerr << line << desc << endl;                 \
+#define _VAL(sarg, larg, haspara, ind, desc)                        \
+    do                                                              \
+    {                                                               \
+        std::string line("  -");                                    \
+        line += sarg;                                               \
+        line += ",--";                                              \
+        line += larg;                                               \
+        line += "  ";                                               \
+        if (haspara == required_argument || haspara == no_argument) \
+        {                                                           \
+            line += ind;                                            \
+        }                                                           \
+        else if (haspara == required_argument)                      \
+        {                                                           \
+            line += "[";                                            \
+            line += ind;                                            \
+            line += "]";                                            \
+        }                                                           \
+        line += std::string(30 - line.length(), ' ');               \
+                                                                    \
+        cerr << line << desc << endl;                               \
     } while (0);
 
 void usage(const char *prog)
@@ -163,7 +165,6 @@ void auto_find_dev(const string &port)
             {
                 auto intf = dev.get_interface(iter->vid, iter->pid, iter->ifno);
 
-                iter->use_flag = true;
                 if (intf.ttyusb.empty())
                 {
                     char buf[128] = {'\0'};
@@ -213,19 +214,19 @@ void load_config(const string &conf)
         if (key == "edldev")
         {
             char phylink[32];
-            support_dev dev;
+            usbdev_info dev;
 
             sscanf(val.c_str(), "%[^,],%04x,%04x,%d", phylink, &dev.vid, &dev.pid, &dev.ifno);
-            dev.phylink = phylink;
+            dev.phylink = PHYLINK::PHYLINK_USB;
             config.edl_devs.push_back(dev);
         }
         else if (key == "normaldev")
         {
             char phylink[32];
-            support_dev dev;
+            usbdev_info dev;
 
             sscanf(val.c_str(), "%[^,],%04x,%04x,%d", phylink, &dev.vid, &dev.pid, &dev.ifno);
-            dev.phylink = phylink;
+            dev.phylink = PHYLINK::PHYLINK_USB;
             config.normal_devs.push_back(dev);
         }
         else if (key == "pac_path")
@@ -241,6 +242,11 @@ void load_config(const string &conf)
             config.reset_normal = atoi(line.substr(line.find_first_of('=') + 1).c_str());
         }
     }
+
+    // UDX710 in EDL mode
+    config.edl_devs.emplace_back(usbdev_info{0x1782, 0x4d00, 0, PHYLINK::PHYLINK_USB});
+    // UIX8910 in EDL mode
+    config.edl_devs.emplace_back(usbdev_info{0x0525, 0xa4a7, 1, PHYLINK::PHYLINK_USB});
 }
 
 int do_update(shared_ptr<USBStream> &us)
@@ -262,7 +268,7 @@ int main(int argc, char **argv)
     shared_ptr<USBStream> us;
 
     if (argc < 2)
-        return 0;
+        flag_list_device = true;
 
     if (argc > 1 && argv[1][0] != '-')
         config_path = argv[1];
@@ -299,12 +305,28 @@ int main(int argc, char **argv)
         }
 
         case 'F':
+            cerr << "oops, currently not support force mode" << endl;
             flag_force_update = true;
             break;
 
         case 'l':
             flag_list_device = true;
             break;
+
+        case 'q':
+        {
+            string logfie = "dloader.log";
+            if (optind < argc && argv[optind][0] != '-')
+                logfie = argv[optind];
+
+            int fd = open(logfie.c_str(), O_CREAT | O_APPEND | O_WRONLY, 0666);
+            if (fd > 0)
+                dup2(fd, STDERR_FILENO);
+            else
+                std::cerr << "cannot open(O_CREAT | O_APPEND | O_WRONLY) " << logfie << std::endl;
+            close(fd);
+            break;
+        }
 
         case 'h':
         default:

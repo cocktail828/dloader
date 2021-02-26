@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:36:51
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-26 15:45:09
+ * @LastEditTime: 2021-02-26 16:15:17
  * @Description: file content
  */
 
@@ -518,7 +518,7 @@ int UpgradeManager::upgrade(bool backup)
         goto _exit;
     }
 
-    if (usbstream->physicalLink() == PHYLINK::PHY_TTY)
+    if (usbstream->physicalLink() == USBLINK::USBLINK_TTY)
     {
         auto p = reinterpret_cast<SerialPort *>(usbstream.get());
         p->setBaud(BAUD::BAUD115200);
