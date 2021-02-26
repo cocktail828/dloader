@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:36:51
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-25 15:23:55
+ * @LastEditTime: 2021-02-26 15:45:09
  * @Description: file content
  */
 
@@ -16,6 +16,8 @@ extern "C"
 
 #include "pdl.hpp"
 #include "fdl.hpp"
+#include "serial.hpp"
+#include "usbfs.hpp"
 #include "upgrade_manager.hpp"
 #include "scopeguard.hpp"
 
@@ -31,7 +33,7 @@ bool string_case_cmp(const std::string &s1, const std::string &s2)
 
 UpgradeManager::UpgradeManager(const std::string &tty,
                                const std::string &pac,
-                               USBStream *us)
+                               std::shared_ptr<USBStream> &us)
     : usbstream(us), firmware(pac), pac(pac)
 {
     int maxlen = FRAMESZ_DATA > FRAMESZ_FDL ? FRAMESZ_DATA : FRAMESZ_FDL;
@@ -66,7 +68,7 @@ void UpgradeManager::hexdump(const std::string &prefix, uint8_t *buf, uint32_t l
         if (pos == 0)
             snprintf(reinterpret_cast<char *>(_buff) + strlen(_buff),
                      sizeof(_buff), "%s %03x  ", prefix.c_str(), pos / 16);
-        else if ((pos % 24) == 0)
+        else if ((pos % 16) == 0)
             snprintf(reinterpret_cast<char *>(_buff) + strlen(_buff),
                      sizeof(_buff), "\n%s %03x  ", prefix.c_str(), pos / 16);
         else if ((pos % 8) == 0)
@@ -87,45 +89,82 @@ void UpgradeManager::hexdump(const std::string &prefix, uint8_t *buf, uint32_t l
 void UpgradeManager::verbose(CMDRequest *req)
 {
     static bool _is_duplicate = false;
+    bool verbose_log = !!getenv("VERBOSE");
 
     if (_is_duplicate && !req->isDuplicate())
         std::cerr << std::endl;
 
-    if (req->isDuplicate() && req->onWrite() && !getenv("VERBOSE"))
+    if (req->isDuplicate() && req->onWrite() && !verbose_log)
         std::cerr << ">";
-    else if (req->isDuplicate() && req->onRead() && !getenv("VERBOSE"))
+    else if (req->isDuplicate() && req->onRead() && !verbose_log)
         std::cerr << "<";
     else
         std::cerr << ">>> " << req->toString() << " " << req->argString()
-                  << " (" << req->rawDataLen() << ")" << std::endl;
+                  << " (" << req->rawDataLen() << ") " << std::endl;
 
     _is_duplicate = req->isDuplicate();
 
-    if (getenv("VERBOSE"))
+    if (verbose_log)
         hexdump(">>>", req->rawData(), req->rawDataLen());
 }
 
 void UpgradeManager::verbose(CMDResponse *resp, bool ondata)
 {
+    bool verbose_log = !!getenv("VERBOSE");
+
     if (!ondata)
-        std::cerr << "<<< " << resp->toString() << " (" << resp->rawDataLen() << ")" << std::endl;
-    if (getenv("VERBOSE"))
+        std::cerr
+            << "<<< " << resp->toString() << " (" << resp->rawDataLen() << ")" << std::endl;
+    if (verbose_log)
         hexdump("<<<", resp->rawData(), resp->rawDataLen());
 }
 
-bool UpgradeManager::talk(CMDRequest *req, CMDResponse *resp, int timeout)
+bool UpgradeManager::talk(CMDRequest *req, CMDResponse *resp, int rx_timeout, int tx_timeout)
 {
-    resp->reset();
+    if (resp)
+        resp->reset();
+
     verbose(req);
-    if (!usbstream->sendSync(req->rawData(), req->rawDataLen()))
+    if (req->protocol() == PROTOCOL::PROTO_FDL)
     {
-        std::cerr << "sendSync failed, req=" << req->toString() << std::endl;
-        return false;
+        if (!usbstream->sendSync(req->rawData(), req->rawDataLen(), tx_timeout))
+        {
+            std::cerr << "sendSync failed, req=" << req->toString() << std::endl;
+            return false;
+        }
     }
+    else
+    {
+        uint32_t txlen = 0;
+
+        if (!usbstream->sendSync(req->rawData() + txlen, sizeof(pdl_pkt_header), tx_timeout))
+        {
+            std::cerr << "sendSync failed, req=" << req->toString() << std::endl;
+            return false;
+        }
+
+        txlen += sizeof(pdl_pkt_header);
+        if (!usbstream->sendSync(req->rawData() + txlen, sizeof(pdl_pkt_tag), tx_timeout))
+        {
+            std::cerr << "sendSync failed, req=" << req->toString() << std::endl;
+            return false;
+        }
+
+        txlen += sizeof(pdl_pkt_tag);
+        if (txlen < req->rawDataLen() &&
+            !usbstream->sendSync(req->rawData() + txlen, req->rawDataLen() - txlen, tx_timeout))
+        {
+            std::cerr << "sendSync failed, req=" << req->toString() << std::endl;
+            return false;
+        }
+    }
+
+    if (!resp)
+        return true;
 
     do
     {
-        if (!usbstream->recvSync(timeout))
+        if (!usbstream->recvSync(rx_timeout))
         {
             std::cerr << "recvSync failed, req=" << req->toString() << std::endl;
             return false;
@@ -152,9 +191,9 @@ int UpgradeManager::connect()
     do
     {
         usleep(1000);
-        request.setArgString(BaudARRSTR[static_cast<int>(BAUD::BAUD115200)]);
         request.newCheckBaud();
-        if (!talk(&request, &response))
+        request.setArgString(BaudARRSTR[static_cast<int>(BAUD::BAUD115200)]);
+        if (!talk(&request, &response, 3000))
         {
             if (--max_try <= 0)
                 return -1;
@@ -180,7 +219,7 @@ _exit:
     return -1;
 }
 
-int UpgradeManager::transfer(const XMLFileInfo &info, uint32_t maxlen, bool isoldproto)
+int UpgradeManager::transfer(const XMLFileInfo &info, uint32_t maxlen)
 {
     uint32_t filesz = info.use_pac_file ? firmware.member_file_size(info.fileid)
                                         : firmware.local_file_size(info.fpath);
@@ -195,9 +234,8 @@ int UpgradeManager::transfer(const XMLFileInfo &info, uint32_t maxlen, bool isol
             fin.close();
     };
 
-    request.setArgString(info.fileid);
-    if (isoldproto)
-        request.newStartData(info.base, info.realsize);
+    if (info.use_old_proto)
+        request.newStartData(info.base, info.realsize, info.checksum);
     else
         request.newStartData(info.blockid, info.realsize, info.checksum);
 
@@ -215,6 +253,7 @@ int UpgradeManager::transfer(const XMLFileInfo &info, uint32_t maxlen, bool isol
         }
 
         request.newMidstData(_data, txlen);
+        request.setArgString(info.fileid);
         if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
             goto _exit;
 
@@ -255,14 +294,11 @@ void UpgradeManager::checksum(XMLFileInfo &info)
     uint32_t fsz = firmware.member_file_size(info.fileid);
     uint16_t crc = 0;
     uint32_t cs = 0;
-    uint32_t skip = 4;
-    uint8_t magic[] = {0xdf, 0x04}; // do not ask me why, I do not know
+    uint32_t skip = 2;
 
     firmware.read(fin, _data, skip);
     fsz -= skip;
 
-    crc = request.crc16NV(crc, magic, sizeof(magic));
-    cs += magic[0] + magic[1];
     do
     {
         uint32_t sz = (fsz > 4096) ? 4096 : fsz;
@@ -295,16 +331,16 @@ int UpgradeManager::backup_partition(XMLFileInfo &info)
 {
     uint32_t totalsz = 0;
     uint32_t partitionsz = info.size;
-    std::string name = get_real_path(pac) + "/" + info.blockid + ".bak";
+    std::string name = get_real_path(pac) + "/" + info.fileid + ".bak";
     std::ofstream fout(name, std::ios::trunc);
 
     request.setCrcModle(CRC_MODLE::CRC_FDL);
     request.setEscapeFlag(false, false);
-    request.setArgString(info.fileid);
     if (!fout.is_open())
     {
-        std::cerr << __func__ << " cannot backup partition " << info.blockid
-                  << " for fail to open(write) " << name << std::endl;
+        std::cerr << __func__ << " cannot backup partition "
+                  << info.fileid << "(" << info.blockid
+                  << ") for fail to open(write) " << name << std::endl;
         return -1;
     }
     info.fpath = name;
@@ -314,15 +350,24 @@ int UpgradeManager::backup_partition(XMLFileInfo &info)
         fout.close();
     };
 
-    request.newStartRead(info.blockid, info.size);
-    if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
-        goto _exit;
+    request.setArgString(info.fileid);
+    if (!info.use_old_proto)
+    {
+        request.newStartRead(info.blockid, info.size);
+        request.setArgString(info.fileid);
+        if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
+            goto _exit;
+    }
 
     do
     {
         uint32_t sz = (partitionsz > FRAMESZ_DATA) ? FRAMESZ_DATA : partitionsz;
 
-        request.newReadMidst(sz, totalsz);
+        if (info.use_old_proto)
+            request.newReadFlash(info.base, sz, totalsz);
+        else
+            request.newReadMidst(sz, totalsz);
+        request.setArgString(info.fileid);
         if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_READ_FLASH)
             goto _exit;
 
@@ -331,9 +376,12 @@ int UpgradeManager::backup_partition(XMLFileInfo &info)
         totalsz += sz;
     } while (partitionsz > 0);
 
-    request.newEndRead();
-    if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
-        goto _exit;
+    if (!info.use_old_proto)
+    {
+        request.newEndRead();
+        if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
+            goto _exit;
+    }
 
     return 0;
 _exit:
@@ -354,7 +402,7 @@ int UpgradeManager::flash_pdl(const XMLFileInfo &info)
     };
 
     req.newPDLConnect();
-    if (!talk(&req, &resp) || resp.type() != PDLREP::PDL_RSP_ACK)
+    if (!talk(&req, &resp, 15000, 15000) || resp.type() != PDLREP::PDL_RSP_ACK)
         goto _exit;
 
     req.newPDLStart(info.base, info.realsize);
@@ -363,10 +411,13 @@ int UpgradeManager::flash_pdl(const XMLFileInfo &info)
 
     do
     {
-        uint32_t sz = (filesz > FRAMESZ_PDL) ? FRAMESZ_PDL : filesz;
-        firmware.read(fin, _data, sz);
-        req.newPDLMidst(_data, sz);
-        filesz -= sz;
+        uint32_t txlen = (filesz > FRAMESZ_PDL) ? FRAMESZ_PDL : filesz;
+        firmware.read(fin, _data, txlen);
+        req.newPDLMidst(_data, txlen);
+        if (!talk(&req, &resp) || resp.type() != PDLREP::PDL_RSP_ACK)
+            goto _exit;
+
+        filesz -= txlen;
     } while (filesz > 0);
 
     req.newPDLEnd();
@@ -374,8 +425,7 @@ int UpgradeManager::flash_pdl(const XMLFileInfo &info)
         goto _exit;
 
     req.newPDLExec();
-    if (!talk(&req, &resp) || resp.type() != PDLREP::PDL_RSP_ACK)
-        goto _exit;
+    this->talk(&req, nullptr);
 
     return 0;
 
@@ -388,10 +438,12 @@ int UpgradeManager::flash_fdl(const XMLFileInfo &info)
 {
     request.setCrcModle(CRC_MODLE::CRC_BOOTCODE);
     request.setEscapeFlag(true, true);
+
     if (connect())
         goto _exit;
 
-    if (transfer(info, FRAMESZ_BOOTCODE, true))
+    request.setArgString(info.fileid);
+    if (transfer(info, FRAMESZ_BOOTCODE))
         goto _exit;
 
     return exec();
@@ -406,19 +458,26 @@ int UpgradeManager::flash_nand_fdl(const XMLFileInfo &info)
 
     request.setCrcModle(CRC_MODLE::CRC_FDL);
     request.setEscapeFlag(true, true);
+
     if (connect())
         goto _exit;
 
-    if (transfer(info, FRAMESZ_FDL, true))
+    request.setArgString(info.fileid);
+    if (transfer(info, FRAMESZ_FDL))
         goto _exit;
 
     ret = exec();
-    if (!ret || response.type() == REPTYPE::BSL_REP_INCOMPATIBLE_PARTITION)
+    if (!ret)
+        return 0;
+
+    request.setArgString("");
+    if (response.type() == REPTYPE::BSL_REP_INCOMPATIBLE_PARTITION)
     {
         request.newExecNandInit();
         if (!talk(&request, &response) || response.type() != REPTYPE::BSL_REP_ACK)
             goto _exit;
     }
+
     return 0;
 
 _exit:
@@ -429,21 +488,27 @@ _exit:
 int UpgradeManager::flash_partition(const XMLFileInfo &info)
 {
     request.setCrcModle(CRC_MODLE::CRC_FDL);
-    request.setEscapeFlag(false, false);
+    request.setEscapeFlag(info.use_old_proto, info.use_old_proto);
+    request.setArgString(info.fileid);
 
-    return transfer(info, FRAMESZ_DATA, false);
+    return transfer(info, info.use_old_proto ? FRAMESZ_PDL : FRAMESZ_DATA);
 }
 
 int UpgradeManager::erase_partition(const XMLFileInfo &info)
 {
     request.setCrcModle(CRC_MODLE::CRC_FDL);
-    request.setEscapeFlag(false, false);
+    request.setEscapeFlag(info.use_old_proto, info.use_old_proto);
 
-    request.newErasePartition(info.blockid);
+    if (info.use_old_proto)
+        request.newErasePartition(info.base);
+    else
+        request.newErasePartition(info.blockid);
+    request.setArgString(info.fileid);
+
     return (talk(&request, &response) && response.type() == REPTYPE::BSL_REP_ACK) ? 0 : -1;
 }
 
-int UpgradeManager::upgrade(const std::string &chipset, bool backup)
+int UpgradeManager::upgrade(bool backup)
 {
     auto table = firmware.get_partition_vec();
     auto filevec = firmware.get_file_vec();
@@ -453,32 +518,65 @@ int UpgradeManager::upgrade(const std::string &chipset, bool backup)
         goto _exit;
     }
 
+    if (usbstream->physicalLink() == PHYLINK::PHY_TTY)
+    {
+        auto p = reinterpret_cast<SerialPort *>(usbstream.get());
+        p->setBaud(BAUD::BAUD115200);
+    }
+    else
+    {
+        auto p = reinterpret_cast<USBFS *>(usbstream.get());
+        if (firmware.productName() == "UIX8910_MODEM")
+            p->setInterface();
+
+        if (firmware.productName() == "UDX710_MODEM")
+            p->sciu2sMessage();
+    }
+
     // FDL
-    for (auto iter = filevec.begin(); iter != filevec.end(); iter++)
+    for (auto iter = filevec.begin(); iter != filevec.end();)
     {
         if (string_case_cmp(iter->fileid, "FDL"))
         {
+            iter->use_old_proto = true;
             if (flash_fdl(*iter))
                 goto _exit;
+            filevec.erase(iter);
         }
         else if (string_case_cmp(iter->fileid, "FDL2"))
         {
+            iter->use_old_proto = true;
             if (flash_nand_fdl(*iter))
                 goto _exit;
+            filevec.erase(iter);
         }
         else if (string_case_cmp(iter->fileid, "HOST_FDL"))
         {
+            iter->use_old_proto = true;
             if (flash_pdl(*iter))
                 goto _exit;
+            filevec.erase(iter);
+        }
+        else
+        {
+            iter++;
         }
     }
 
     // Bakeup
-    if (backup)
+    for (auto iter = filevec.begin(); iter != filevec.end(); iter++)
     {
-        for (auto iter = filevec.begin(); iter != filevec.end(); iter++)
+        if (string_case_cmp(iter->fileid, "NV"))
         {
-            if (iter->isBackup && backup_partition(*iter))
+            iter->use_old_proto = true;
+            if (backup_partition(*iter))
+                goto _exit;
+        }
+
+        else if (string_case_cmp(iter->fileid, "NV_COMM"))
+        {
+            iter->use_old_proto = false;
+            if (backup_partition(*iter))
                 goto _exit;
         }
     }
@@ -494,34 +592,59 @@ int UpgradeManager::upgrade(const std::string &chipset, bool backup)
     // do update
     for (auto iter = filevec.begin(); iter != filevec.end(); iter++)
     {
-        if (string_case_cmp(iter->fileid, "FDL") ||
-            string_case_cmp(iter->fileid, "FDL2") ||
-            string_case_cmp(iter->fileid, "HOST_FDL"))
-            continue;
-
-        if (iter->type == "EraseFlash2")
+        if (string_case_cmp(iter->type, "EraseFlash2"))
         {
+            iter->use_old_proto = false;
             if (erase_partition(*iter))
+                goto _exit;
+        }
+        else if (string_case_cmp(iter->type, "EraseFlash"))
+        {
+            if (iter->fileid != "FLASH")
+                continue;
+
+            iter->use_old_proto = true;
+            if (erase_partition(*iter))
+                goto _exit;
+        }
+        else if (string_case_cmp(iter->type, "NV_COMM"))
+        {
+            iter->use_old_proto = false;
+            checksum(*iter);
+            if (flash_partition(*iter))
+                goto _exit;
+        }
+        else if (string_case_cmp(iter->type, "NV"))
+        {
+            iter->use_old_proto = true;
+            checksum(*iter);
+            if (flash_partition(*iter))
+                goto _exit;
+        }
+        else if (string_case_cmp(iter->type, "CODE"))
+        {
+            if (string_case_cmp(iter->fileid, "PhaseCheck"))
+                continue;
+
+            iter->use_old_proto = true;
+            if (flash_partition(*iter))
+                goto _exit;
+        }
+        else if (string_case_cmp(iter->type, "YAFFS_IMG2") ||
+                 string_case_cmp(iter->type, "UBOOT_LOADER2") ||
+                 string_case_cmp(iter->type, "CODE2"))
+        {
+            if (string_case_cmp(iter->fileid, "PhaseCheck") ||
+                string_case_cmp(iter->fileid, "ProdNV"))
+                continue;
+
+            iter->use_old_proto = false;
+            if (flash_partition(*iter))
                 goto _exit;
         }
         else
         {
-            iter->use_pac_file = true;
-            // the two partition is special. we should not change it
-            if (string_case_cmp(iter->fileid, "ProdNV") ||
-                string_case_cmp(iter->fileid, "PhaseCheck"))
-            {
-                std::cerr << __func__ << " skip flashing " << iter->fileid
-                          << "(" << iter->blockid << ")"
-                          << " via " << iter->fpath << std::endl;
-                continue;
-            }
-
-            if (string_case_cmp(iter->fileid, "NV_NR"))
-                checksum(*iter);
-
-            if (flash_partition(*iter))
-                goto _exit;
+            std::cerr << "skip unknow type: " << iter->type << std::endl;
         }
     }
 

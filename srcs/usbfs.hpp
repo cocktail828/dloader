@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:19
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-25 13:04:31
+ * @LastEditTime: 2021-02-26 14:05:25
  * @Description: file content
  */
 #ifndef __USBFS__
@@ -25,9 +25,11 @@ public:
     USBFS(const std::string &devpath, int ifno, int epin, int epout);
     ~USBFS();
 
-    void init();
+    void sciu2sMessage();
+    void setInterface();
+
     bool isOpened();
-    bool sendSync(uint8_t *data, uint32_t len, uint32_t timeout = 0);
+    bool sendSync(uint8_t *data, uint32_t len, uint32_t timeout);
     bool recvSync(uint32_t timeout);
 
     bool usbfs_is_kernel_driver_alive();

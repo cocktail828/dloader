@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-24 10:10:11
+ * @LastEditTime: 2021-02-26 15:11:18
  * @Description: file content
  */
 #ifndef __FDL__
@@ -143,15 +143,14 @@ public:
     void newEndData();
     void newExecData();
     void newNormalReset();
-    void newReadFlash(uint32_t addr, uint32_t size, uint32_t offset = 0);
+    void newReadFlash(uint32_t addr, uint32_t size, uint32_t offset);
 
     /**
      * old implements
      * set size = 0, let FDL1/FDL2 desides the partition size. usually erase a partition
      * in old implements, addr=0 && size=0xffffffff means erase all
      */
-    void newEraseFlash(uint32_t addr, uint32_t size);
-    void newErasePartition(uint32_t addr);
+    void newErasePartition(uint32_t addr, uint32_t size = 0);
     void newEraseALL();
     void newErasePartition(const std::string &partition);
 

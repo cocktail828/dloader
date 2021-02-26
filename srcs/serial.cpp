@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-08 11:41:38
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-25 13:37:46
+ * @LastEditTime: 2021-02-26 14:06:22
  * @Description: file content
  */
 
@@ -21,7 +21,7 @@ extern "C"
 #include "serial.hpp"
 
 SerialPort::SerialPort(const std::string &tty)
-    : USBStream(tty), ttyfd(-1), epfd(-1)
+    : USBStream(tty, PHYLINK::PHY_TTY), ttyfd(-1), epfd(-1)
 {
     std::cerr << "serial try open " << usb_device << std::endl;
     ttyfd = open(usb_device.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);

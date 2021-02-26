@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 18:57:26
+ * @LastEditTime: 2021-02-26 11:42:31
  * @Description: file content
  */
 #include <iostream>
@@ -105,6 +105,16 @@ int Firmware::pacparser()
 uint32_t Firmware::pac_file_count()
 {
     return pachdr->nFileCount;
+}
+
+const std::string Firmware::productName()
+{
+    return WCHARSTR(pachdr->szPrdName);
+}
+
+const std::string Firmware::productVersion()
+{
+    return WCHARSTR(pachdr->szPrdVersion);
 }
 
 int Firmware::unpack(int idx, const std::string &extdir)

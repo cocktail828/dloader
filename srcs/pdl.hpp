@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-10 08:46:33
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-24 10:08:58
+ * @LastEditTime: 2021-02-26 14:10:30
  * @Description: file content
  */
 #ifndef __PDL__
@@ -56,7 +56,7 @@ enum class PDLREP
 #define PDL_MAX_DATA_LEN 4096
 
 #define PDLHEADER(p) reinterpret_cast<pdl_pkt_header *>(p)
-#define PDLTAG(p) reinterpret_cast<pdl_pkt_data *>(p + sizeof(pdl_pkt_header))
+#define PDLTAG(p) reinterpret_cast<pdl_pkt_tag *>(p + sizeof(pdl_pkt_header))
 #pragma pack(push, 1)
 
 struct pdl_pkt_header
@@ -64,11 +64,11 @@ struct pdl_pkt_header
     uint8_t ucTag;      //< 0xAE
     uint32_t nDataSize; //< data size
     uint8_t ucFlowID;   //< 0xFF
-    uint16_t wReserved; //< reserved
+    uint16_t wReserved; //< reserved 0
 };
 
 // response only has field 'dwCmdType'
-struct pdl_pkt_data
+struct pdl_pkt_tag
 {
     uint32_t dwCmdType;
     uint32_t dwDataAddr;

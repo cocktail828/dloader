@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-25 09:58:10
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-25 13:50:23
+ * @LastEditTime: 2021-02-26 14:34:46
  * @Description: file content
  */
 #include <iostream>
@@ -27,7 +27,7 @@ extern "C"
 #include "usbfs.hpp"
 
 USBFS::USBFS(const std::string &devpath, int ifno, int epin, int epout)
-    : USBStream(devpath), interface_no(ifno), endpoint_in(epin), endpoint_out(epout)
+    : USBStream(devpath, PHYLINK::PHY_USBFS), interface_no(ifno), endpoint_in(epin), endpoint_out(epout)
 {
     usbfd = open(devpath.c_str(), O_RDWR | O_NOCTTY);
     if (usbfd < 0)
@@ -40,9 +40,8 @@ USBFS::USBFS(const std::string &devpath, int ifno, int epin, int epout)
     {
         close(usbfd);
         usbfd = -1;
+        return;
     }
-
-    init();
 }
 
 USBFS::~USBFS()
@@ -55,14 +54,40 @@ USBFS::~USBFS()
     }
 }
 
-void USBFS::init()
+void USBFS::sciu2sMessage()
 {
     struct usbdevfs_ctrltransfer control;
 
+    // control message that sciu2s.ko will send on tty is open
     control.bRequestType = 0x21;
     control.bRequest = 34;
     control.wValue = endpoint_out << 8 | 1;
     control.wIndex = 0;
+    control.wLength = 0;
+    control.timeout = 0; /* in milliseconds */
+    control.data = NULL;
+
+    ioctl(usbfd, USBDEVFS_CONTROL, &control);
+}
+
+void USBFS::setInterface()
+{
+    struct usbdevfs_ctrltransfer control;
+
+    control.bRequestType = 0;
+    control.bRequest = 9;
+    control.wValue = 1;
+    control.wIndex = 0;
+    control.wLength = 0;
+    control.timeout = 0; /* in milliseconds */
+    control.data = NULL;
+
+    ioctl(usbfd, USBDEVFS_CONTROL, &control);
+
+    control.bRequestType = 0;
+    control.bRequest = 11;
+    control.wValue = 0;
+    control.wIndex = 1;
     control.wLength = 0;
     control.timeout = 0; /* in milliseconds */
     control.data = NULL;

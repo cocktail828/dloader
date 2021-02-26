@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:19
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-25 13:06:50
+ * @LastEditTime: 2021-02-26 11:07:24
  * @Description: file content
  */
 #ifndef __SERIAL__
@@ -61,7 +61,7 @@ public:
     void setBaud(BAUD);
     void init();
     bool isOpened();
-    bool sendSync(uint8_t *data, uint32_t len, uint32_t timeout = 0);
+    bool sendSync(uint8_t *data, uint32_t len, uint32_t timeout);
     bool recvSync(uint32_t timeout);
 };
 

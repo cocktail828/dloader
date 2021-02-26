@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-04 14:04:11
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-25 15:33:29
+ * @LastEditTime: 2021-02-26 15:41:44
  * @Description: file content
  */
 #include <iostream>
@@ -15,7 +15,8 @@
 static REQTYPE __request_type = REQTYPE::BSL_CMD_CONNECT;
 
 FDLRequest::FDLRequest()
-    : _reallen(0), crc_modle(CRC_MODLE::CRC_BOOTCODE),
+    : CMDRequest(PROTOCOL::PROTO_FDL),
+      _reallen(0), crc_modle(CRC_MODLE::CRC_BOOTCODE),
       crc_escape_flag(true), data_escape_flag(true), _argstr("")
 {
     _data = new (std::nothrow) uint8_t[MAX_DATA_LEN]();
@@ -125,7 +126,8 @@ bool FDLRequest::onWrite()
 
 bool FDLRequest::onRead()
 {
-    return type() == REQTYPE::BSL_CMD_READ_MIDST;
+    return type() == REQTYPE::BSL_CMD_READ_MIDST ||
+           type() == REQTYPE::BSL_CMD_READ_FLASH;
 }
 
 void FDLRequest::setEscapeFlag(bool data_es_flag, bool crc_es_flag)
@@ -254,7 +256,6 @@ void FDLRequest::reinit(REQTYPE req)
     hdr->data_length = 0;
 
     _reallen = sizeof(cmd_header);
-    _argstr = "";
 }
 
 uint32_t _num_escape(uint8_t *src, uint32_t len)
@@ -463,32 +464,25 @@ void FDLRequest::newNormalReset()
 
 void FDLRequest::newReadFlash(uint32_t addr, uint32_t size, uint32_t offset)
 {
-    reinit(REQTYPE::BSL_CMD_ERASE_FLASH);
+    reinit(REQTYPE::BSL_CMD_READ_FLASH);
     push_back(htobe32(addr));
     push_back(htobe32(size));
-
-    if (offset)
-        push_back(htobe32(offset));
+    push_back(htobe32(offset));
     finishup();
 }
 
-void FDLRequest::newEraseFlash(uint32_t addr, uint32_t size)
+void FDLRequest::newErasePartition(uint32_t addr, uint32_t size)
 {
     reinit(REQTYPE::BSL_CMD_ERASE_FLASH);
     push_back(htobe32(addr));
     push_back(htobe32(size));
 
     finishup();
-}
-
-void FDLRequest::newErasePartition(uint32_t addr)
-{
-    newEraseFlash(addr, 0);
 }
 
 void FDLRequest::newEraseALL()
 {
-    newEraseFlash(0, 0xffffffff);
+    newErasePartition(0, 0xffffffff);
 }
 
 void FDLRequest::newErasePartition(const std::string &partition)
@@ -552,7 +546,8 @@ void FDLRequest::newExecNandInit()
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
-FDLResponse::FDLResponse() : _reallen(0)
+FDLResponse::FDLResponse()
+    : CMDResponse(PROTOCOL::PROTO_FDL), _reallen(0)
 {
     _data = new (std::nothrow) uint8_t[MAX_DATA_LEN]();
 }

@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-10 09:05:20
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-24 10:18:31
+ * @LastEditTime: 2021-02-26 15:39:24
  * @Description: file content
  */
 #include <iostream>
@@ -12,7 +12,8 @@
 
 static PDLREQ __request_type = PDLREQ::PDL_CMD_CONNECT;
 
-PDLRequest::PDLRequest() : _reallen(0)
+PDLRequest::PDLRequest()
+    : CMDRequest(PROTOCOL::PROTO_PDL), _reallen(0)
 {
     _data = new (std::nothrow) uint8_t[PDL_MAX_DATA_LEN];
 }
@@ -33,13 +34,13 @@ void PDLRequest::reinit(PDLREQ cmd)
     memset(_data, 0, PDL_MAX_DATA_LEN);
 
     hdr->ucTag = 0xae;
-    hdr->nDataSize = htole32(sizeof(pdl_pkt_data));
-    hdr->ucFlowID = htole16(0xff);
+    hdr->nDataSize = htole32(sizeof(pdl_pkt_tag));
+    hdr->ucFlowID = 0xff;
     hdr->wReserved = 0;
 
     tag->dwCmdType = htole32(static_cast<uint32_t>(cmd));
 
-    _reallen = sizeof(pdl_pkt_header) + sizeof(pdl_pkt_data);
+    _reallen = sizeof(pdl_pkt_header) + sizeof(pdl_pkt_tag);
 }
 
 void PDLRequest::push_back(uint8_t *data, uint32_t len)
@@ -175,13 +176,14 @@ bool PDLRequest::onWrite()
 
 bool PDLRequest::onRead()
 {
-    return false;
+    return type() == PDLREQ::PDL_CMD_READ_FLASH;
 }
 
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
-PDLResponse::PDLResponse() : _reallen(0)
+PDLResponse::PDLResponse()
+    : CMDResponse(PROTOCOL::PROTO_PDL), _reallen(0)
 {
     _data = new (std::nothrow) uint8_t[PDL_MAX_DATA_LEN];
 }
@@ -214,31 +216,31 @@ std::string PDLResponse::toString()
     switch (static_cast<PDLREP>(le32toh(tag->dwCmdType)))
     {
     case PDLREP::PDL_RSP_ACK:
-        return "";
+        return "PDL_RSP_ACK";
     case PDLREP::PDL_RSP_INVALID_CMD:
-        return "";
+        return "PDL_RSP_INVALID_CMD";
     case PDLREP::PDL_RSP_UNKNOWN_CMD:
-        return "";
+        return "PDL_RSP_UNKNOWN_CMD";
     case PDLREP::PDL_RSP_INVALID_ADDR:
-        return "";
+        return "PDL_RSP_INVALID_ADDR";
     case PDLREP::PDL_RSP_INVALID_BAUDRATE:
-        return "";
+        return "PDL_RSP_INVALID_BAUDRATE";
     case PDLREP::PDL_RSP_INVALD_PARTITION:
-        return "";
+        return "PDL_RSP_INVALD_PARTITION";
     case PDLREP::PDL_RSP_SIZE_ERROR:
-        return "";
+        return "PDL_RSP_SIZE_ERROR";
     case PDLREP::PDL_RSP_WAIT_TIMEOUT:
-        return "";
+        return "PDL_RSP_WAIT_TIMEOUT";
     case PDLREP::PDL_RSP_VERIFY_ERROR:
-        return "";
+        return "PDL_RSP_VERIFY_ERROR";
     case PDLREP::PDL_RSP_CHECKSUM_ERROR:
-        return "";
+        return "PDL_RSP_CHECKSUM_ERROR";
     case PDLREP::PDL_RSP_OPERATION_FAILED:
-        return "";
+        return "PDL_RSP_OPERATION_FAILED";
     case PDLREP::PDL_RSP_DEVICE_ERROR:
-        return "";
+        return "PDL_RSP_DEVICE_ERROR";
     case PDLREP::PDL_RSP_NO_MEMORY:
-        return "";
+        return "PDL_RSP_NO_MEMORY";
     default:
         return "UNKNOW_RESPONSE";
     }

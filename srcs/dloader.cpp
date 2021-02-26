@@ -2,12 +2,12 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 12:21:12
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-25 12:50:21
+ * @LastEditTime: 2021-02-26 14:27:34
  * @Description: file content
  */
 #include <iostream>
 #include <fstream>
-#include <thread>
+#include <memory>
 
 extern "C"
 {
@@ -150,7 +150,7 @@ void auto_find_dev(const string &port)
                     std::string edl_command("at+qdownload=1\r\n");
                     SerialPort serial(ttydev + intf.ttyusb);
 
-                    serial.sendSync((uint8_t *)(edl_command.c_str()), edl_command.length());
+                    serial.sendSync((uint8_t *)(edl_command.c_str()), edl_command.length(), 5000);
                     break;
                 }
             }
@@ -178,14 +178,12 @@ void auto_find_dev(const string &port)
                 else
                     config.device = "/dev/" + intf.ttyusb;
 
-                config.chipset = iter->chipset;
                 return;
             }
         }
 
         cerr << "find no support device" << endl;
-
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        sleep(1);
     }
 }
 
@@ -215,22 +213,18 @@ void load_config(const string &conf)
         if (key == "edldev")
         {
             char phylink[32];
-            char chipstr[32];
             support_dev dev;
 
-            sscanf(val.c_str(), "%[^,],%04x,%04x,%d,%s", phylink, &dev.vid, &dev.pid, &dev.ifno, chipstr);
-            dev.chipset = chipstr;
+            sscanf(val.c_str(), "%[^,],%04x,%04x,%d", phylink, &dev.vid, &dev.pid, &dev.ifno);
             dev.phylink = phylink;
             config.edl_devs.push_back(dev);
         }
         else if (key == "normaldev")
         {
             char phylink[32];
-            char chipstr[32];
             support_dev dev;
 
-            sscanf(val.c_str(), "%[^,],%04x,%04x,%d,%s", phylink, &dev.vid, &dev.pid, &dev.ifno, chipstr);
-            dev.chipset = chipstr;
+            sscanf(val.c_str(), "%[^,],%04x,%04x,%d", phylink, &dev.vid, &dev.pid, &dev.ifno);
             dev.phylink = phylink;
             config.normal_devs.push_back(dev);
         }
@@ -249,14 +243,14 @@ void load_config(const string &conf)
     }
 }
 
-int do_update(const string &name, USBStream *us)
+int do_update(shared_ptr<USBStream> &us)
 {
     UpgradeManager upmgr(config.device, config.pac_path, us);
 
     if (!upmgr.prepare())
         return -1;
 
-    return upmgr.upgrade(name, true);
+    return upmgr.upgrade(true);
 }
 
 int main(int argc, char **argv)
@@ -265,13 +259,7 @@ int main(int argc, char **argv)
     string config_path;
     int longidx = 0;
     bool flag_list_device = false;
-    USBStream *us = nullptr;
-
-    ON_SCOPE_EXIT
-    {
-        if (us)
-            delete us;
-    };
+    shared_ptr<USBStream> us;
 
     if (argc < 2)
         return 0;
@@ -340,19 +328,18 @@ int main(int argc, char **argv)
 
     cerr << "choose device: " << config.device << endl;
     cerr << "choose pac: " << config.pac_path << endl;
-    cerr << "chip series is: " << config.chipset << endl;
 
     if (!config.device.empty())
     {
         if (config.device.find("/dev/bus/usb") != std::string::npos)
-            us = new USBFS(config.device, config.interface_no, config.endpoint_in, config.endpoint_out);
+            us.reset(new USBFS(config.device, config.interface_no, config.endpoint_in, config.endpoint_out));
         else
-            us = new SerialPort(config.device);
+            us.reset(new SerialPort(config.device));
     }
 
     if (!config.device.empty() && !access(config.device.c_str(), F_OK) &&
         !config.pac_path.empty() && !access(config.pac_path.c_str(), F_OK))
-        return do_update(config.chipset, us);
+        return do_update(us);
 
     cerr << "find no support device or no pac file" << endl;
     return -1;

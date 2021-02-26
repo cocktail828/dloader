@@ -2,7 +2,7 @@
  * @Author: sinpo828
  * @Date: 2021-02-07 10:26:30
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-23 18:17:10
+ * @LastEditTime: 2021-02-26 12:16:48
  * @Description: file content
  */
 #ifndef __FIRMWARE__
@@ -78,11 +78,12 @@ struct XMLFileInfo
     uint32_t checksum;
     uint16_t crc16;
     bool use_pac_file;
+    bool use_old_proto;
     bool isBackup;
 
     XMLFileInfo() : fileid(""), blockid(""), type(""),
                     base(0), size(0), realsize(0), flag(0), checkflag(0),
-                    checksum(0), crc16(0), use_pac_file(true), isBackup(false) {}
+                    checksum(0), crc16(0), use_pac_file(true), use_old_proto(false), isBackup(false) {}
 };
 
 class Firmware
@@ -112,6 +113,8 @@ public:
 
     // file counts including file that has size of 0
     uint32_t pac_file_count();
+    const std::string productName();
+    const std::string productVersion();
 
     int unpack(int idx, const std::string &extdir = "packets");
     int unpack(const std::string &idstr, const std::string &extdir = "packets");

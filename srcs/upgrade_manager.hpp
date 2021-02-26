@@ -2,13 +2,14 @@
  * @Author: sinpo828
  * @Date: 2021-02-05 08:54:33
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-25 11:16:06
+ * @LastEditTime: 2021-02-26 15:32:31
  * @Description: file content
  */
 #ifndef __UPDATE__
 #define __UPDATE__
 
 #include <string>
+#include <memory>
 
 #include "fdl.hpp"
 #include "pdl.hpp"
@@ -26,7 +27,7 @@
 class UpgradeManager
 {
 private:
-    USBStream *usbstream;
+    std::shared_ptr<USBStream> usbstream;
     FDLRequest request;
     FDLResponse response;
     Firmware firmware;
@@ -37,14 +38,14 @@ private:
     void hexdump(const std::string &prefix, uint8_t *buf, uint32_t len, uint32_t dumplen = 20);
     void verbose(CMDRequest *req);
     void verbose(CMDResponse *resp, bool ondata);
-    bool talk(CMDRequest *req, CMDResponse *resp, int timeout = 5000);
+    bool talk(CMDRequest *req, CMDResponse *resp, int rx_timeout = 5000, int tx_timeout = 5000);
     int connect();
-    int transfer(const XMLFileInfo &info, uint32_t maxlen, bool isoldproto = false);
+    int transfer(const XMLFileInfo &info, uint32_t maxlen);
     int exec();
     void checksum(XMLFileInfo &info);
 
 public:
-    UpgradeManager(const std::string &tty, const std::string &pac, USBStream *us);
+    UpgradeManager(const std::string &tty, const std::string &pac, std::shared_ptr<USBStream> &us);
     ~UpgradeManager();
 
     // do some preparetion, parser xml, init tty or something
@@ -57,7 +58,7 @@ public:
     int flash_partition(const XMLFileInfo &info);
     int erase_partition(const XMLFileInfo &info);
 
-    int upgrade(const std::string &chiset, bool backup = false);
+    int upgrade(bool backup = false);
 };
 
 #endif //__UPDATE__

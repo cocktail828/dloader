@@ -2,13 +2,19 @@
  * @Author: sinpo828
  * @Date: 2021-02-25 09:59:00
  * @LastEditors: sinpo828
- * @LastEditTime: 2021-02-25 13:15:48
+ * @LastEditTime: 2021-02-26 14:05:58
  * @Description: file content
  */
 #ifndef __USBCOM__
 #define __USBCOM__
 
 #include <string>
+
+enum class PHYLINK
+{
+    PHY_TTY,
+    PHY_USBFS,
+};
 
 class USBStream
 {
@@ -17,10 +23,15 @@ protected:
     std::string usb_device;
     uint8_t *_data;
     uint32_t _reallen;
+    PHYLINK phylink;
 
 public:
-    USBStream(const std::string &dev)
-        : usb_device(dev), _reallen(0) { _data = new (std::nothrow) uint8_t[max_buf_size]; }
+    USBStream(const std::string &dev, PHYLINK phy)
+        : usb_device(dev), _reallen(0), phylink(phy)
+    {
+        _data = new (std::nothrow) uint8_t[max_buf_size];
+    }
+
     virtual ~USBStream()
     {
         if (_data)
@@ -28,13 +39,13 @@ public:
         _data = nullptr;
     }
 
-    virtual void init() = 0;
+    virtual PHYLINK physicalLink() final { return phylink; }
     virtual bool isOpened() = 0;
-    virtual bool sendSync(uint8_t *data, uint32_t len, uint32_t timeout = 5000) = 0;
+    virtual bool sendSync(uint8_t *data, uint32_t len, uint32_t timeout) = 0;
     virtual bool recvSync(uint32_t timeout) = 0;
 
-    virtual uint8_t *data() { return _data; };
-    virtual uint32_t datalen() { return _reallen; };
+    virtual uint8_t *data() final { return _data; };
+    virtual uint32_t datalen() final { return _reallen; };
 };
 
 #endif //__USBCOM__
