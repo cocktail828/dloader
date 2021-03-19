@@ -1,6 +1,7 @@
 ## What's this?
 This is a small flash tool written by c++ for unisoc modems.
-Anybody can use it for free to update there unisoc Phones but with no guarantee.
+Anybody can use it for free to update their unisoc Phones but with no guarantee.
+Current，only support UDX710 && UIX8910
 
 ## How to use?
 1. First build via `make`, the you will get a executable file named with 'dloader'
