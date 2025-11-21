@@ -11,8 +11,7 @@
 #include <string>
 #include <vector>
 
-struct interface
-{
+struct interface {
     int cls;
     int subcls;
     int proto;
@@ -21,12 +20,10 @@ struct interface
     int endpoint_out;
     std::string modalias;
     std::string ttyusb;
-    interface() : cls(0), subcls(0), proto(0),
-                  interface_no(0), modalias(""), ttyusb("") {}
+    interface() : cls(0), subcls(0), proto(0), interface_no(0) {}
 };
 
-struct usbdev
-{
+struct usbdev {
     int vid;
     int pid;
     int busno;
@@ -34,23 +31,22 @@ struct usbdev
     std::string usbport;
     std::string devpath;
     std::vector<interface> ifaces;
-    usbdev() : usbport(""), devpath("") {}
+    usbdev() : vid(0), pid(0), busno(0), devno(0) {}
 };
 
-class Device final
-{
-private:
+class Device final {
+   private:
     std::vector<usbdev> m_usbdevs;
 
-private:
+   private:
     int scan_iface(int vid, int pid, std::string usbport, std::string rootdir);
 
-public:
+   public:
     Device() { reset(); }
     ~Device() {}
 
     void reset();
-    int scan(const std::string &usbport);
+    int scan(const std::string& usbport);
     bool exist(int vid, int pid);
     bool exist(int vid, int pid, int ifno);
     bool exist(int vid, int pid, int cls, int scls, int proto);
@@ -59,4 +55,4 @@ public:
     interface get_interface(int vid, int pid, int cls, int scls, int proto);
 };
 
-#endif //__DEVICE__
+#endif  //__DEVICE__

@@ -8,18 +8,16 @@
 #ifndef __PROTOCOL__
 #define __PROTOCOL__
 
-enum class PROTOCOL
-{
+enum class PROTOCOL {
     PROTO_PDL,
     PROTO_FDL,
 };
 
-class CMDRequest
-{
-protected:
+class CMDRequest {
+   protected:
     PROTOCOL proto;
 
-public:
+   public:
     CMDRequest(PROTOCOL pro) : proto(pro) {}
     virtual ~CMDRequest() {}
 
@@ -37,12 +35,11 @@ public:
     virtual PROTOCOL protocol() final { return proto; }
 };
 
-class CMDResponse
-{
-protected:
+class CMDResponse {
+   protected:
     PROTOCOL proto;
 
-public:
+   public:
     CMDResponse(PROTOCOL pro) : proto(pro){};
     virtual ~CMDResponse(){};
 
@@ -58,4 +55,4 @@ public:
     virtual PROTOCOL protocol() final { return proto; }
 };
 
-#endif //__PROTOCOL__
+#endif  //__PROTOCOL__

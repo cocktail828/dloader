@@ -10,32 +10,26 @@
 
 #include <string>
 
-enum class USBLINK
-{
+enum class USBLINK {
     USBLINK_TTY,
     USBLINK_USBFS,
 };
 
-class USBStream
-{
-protected:
+class USBStream {
+   protected:
     const int max_buf_size = 4 * 1024;
     std::string usb_device;
     uint8_t *_data;
     uint32_t _reallen;
     USBLINK phylink;
 
-public:
-    USBStream(const std::string &dev, USBLINK phy)
-        : usb_device(dev), _reallen(0), phylink(phy)
-    {
+   public:
+    USBStream(const std::string &dev, USBLINK phy) : usb_device(dev), _reallen(0), phylink(phy) {
         _data = new (std::nothrow) uint8_t[max_buf_size];
     }
 
-    virtual ~USBStream()
-    {
-        if (_data)
-            delete[] _data;
+    virtual ~USBStream() {
+        if (_data) delete[] _data;
         _data = nullptr;
     }
 
@@ -48,4 +42,4 @@ public:
     virtual uint32_t datalen() final { return _reallen; };
 };
 
-#endif //__USBCOM__
+#endif  //__USBCOM__

@@ -24,8 +24,7 @@ const static uint8_t MAGIC_5d = 0x5d;
 #define FRAMEDATAHDR(p) (p + sizeof(cmd_header))
 #define FRAMETAIL(p, n) (reinterpret_cast<cmd_tail *>(p + n))
 
-enum class REQTYPE
-{
+enum class REQTYPE {
     BSL_CMD_CHECK_BAUD = 0x7e,
     BSL_CMD_CONNECT = 0x0,
     BSL_CMD_START_DATA = 0x1,
@@ -43,8 +42,7 @@ enum class REQTYPE
     BSL_CMD_EXEC_NAND_INIT = 0x21,
 };
 
-enum class REPTYPE
-{
+enum class REPTYPE {
     BSL_REP_ACK = 0x80,
     BSL_REP_VER = 0x81,
     BSL_REP_INVALID_CMD = 0x82,
@@ -62,29 +60,25 @@ enum class REPTYPE
     BSL_REP_INCOMPATIBLE_PARTITION = 0x96,
 };
 
-enum class CRC_MODLE
-{
-    CRC_BOOTCODE, // crc used when talk with bootcode
-    CRC_FDL,      // crc used when talk with fdl
+enum class CRC_MODLE {
+    CRC_BOOTCODE,  // crc used when talk with bootcode
+    CRC_FDL,       // crc used when talk with fdl
 };
 
 #pragma pack(1)
-struct cmd_header
-{
+struct cmd_header {
     uint8_t magic;
     uint16_t cmd_type;
     uint16_t data_length;
 };
 
-struct cmd_tail
-{
+struct cmd_tail {
     uint16_t crc16;
     uint8_t magic;
 };
 #pragma pack()
 
-struct partition_info
-{
+struct partition_info {
     std::string partition;
     uint32_t size;
     partition_info() : partition(""), size(0) {}
@@ -93,9 +87,8 @@ struct partition_info
 // NOTICE: make sure it not less than data len in Midst message
 #define MAX_DATA_LEN 0x4000
 
-class FDLRequest final : public CMDRequest
-{
-private:
+class FDLRequest final : public CMDRequest {
+   private:
     uint8_t *_data;
     uint32_t _reallen;
     CRC_MODLE crc_modle;
@@ -103,14 +96,14 @@ private:
     bool data_escape_flag;
     std::string _argstr;
 
-private:
+   private:
     void reinit(REQTYPE);
     void finishup();
 
     template <typename T>
     void push_back(T);
 
-public:
+   public:
     FDLRequest();
     virtual ~FDLRequest();
 
@@ -147,8 +140,8 @@ public:
 
     /**
      * old implements
-     * set size = 0, let FDL1/FDL2 desides the partition size. usually erase a partition
-     * in old implements, addr=0 && size=0xffffffff means erase all
+     * set size = 0, let FDL1/FDL2 desides the partition size. usually erase a
+     * partition in old implements, addr=0 && size=0xffffffff means erase all
      */
     void newErasePartition(uint32_t addr, uint32_t size = 0);
     void newEraseALL();
@@ -169,21 +162,19 @@ public:
 /*************************** RESPONSE ***************************/
 /*************************** RESPONSE ***************************/
 
-enum class RESP_STATE
-{
+enum class RESP_STATE {
     RESP_STATE_OK,
     RESP_STATE_INCOMPLETE,
     RESP_STATE_VARIFY_FAIL,
     RESP_STATE_MALFORMED,
 };
 
-class FDLResponse final : public CMDResponse
-{
-private:
+class FDLResponse final : public CMDResponse {
+   private:
     uint8_t *_data;
     uint32_t _reallen;
 
-public:
+   public:
     FDLResponse();
     virtual ~FDLResponse();
 
@@ -202,4 +193,4 @@ public:
     uint32_t minLength();
 };
 
-#endif //__FDL__
+#endif  //__FDL__

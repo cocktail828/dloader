@@ -13,8 +13,7 @@
 
 #include "protocol.hpp"
 
-enum class PDLREQ
-{
+enum class PDLREQ {
     PDL_CMD_CONNECT,
     PDL_CMD_ERASE_FLASH,
     PDL_CMD_ERASE_PARTITION,
@@ -30,8 +29,7 @@ enum class PDLREQ
     PDL_CMD_SET_BAUDRATE,
 };
 
-enum class PDLREP
-{
+enum class PDLREP {
     PDL_RSP_ACK,
 
     /// from PC command
@@ -49,7 +47,7 @@ enum class PDLREP
     PDL_RSP_OPERATION_FAILED,
 
     /// phone internal
-    PDL_RSP_DEVICE_ERROR, //DDR,NAND init errors
+    PDL_RSP_DEVICE_ERROR,  // DDR,NAND init errors
     PDL_RSP_NO_MEMORY
 };
 
@@ -59,35 +57,31 @@ enum class PDLREP
 #define PDLTAG(p) reinterpret_cast<pdl_pkt_tag *>(p + sizeof(pdl_pkt_header))
 #pragma pack(push, 1)
 
-struct pdl_pkt_header
-{
-    uint8_t ucTag;      //< 0xAE
-    uint32_t nDataSize; //< data size
-    uint8_t ucFlowID;   //< 0xFF
-    uint16_t wReserved; //< reserved 0
+struct pdl_pkt_header {
+    uint8_t ucTag;       //< 0xAE
+    uint32_t nDataSize;  //< data size
+    uint8_t ucFlowID;    //< 0xFF
+    uint16_t wReserved;  //< reserved 0
 };
 
 // response only has field 'dwCmdType'
-struct pdl_pkt_tag
-{
+struct pdl_pkt_tag {
     uint32_t dwCmdType;
     uint32_t dwDataAddr;
     uint32_t dwDataSize;
 };
 #pragma pack(pop)
 
-class PDLRequest final : public CMDRequest
-{
-private:
+class PDLRequest final : public CMDRequest {
+   private:
     uint8_t *_data;
     uint32_t _reallen;
 
-private:
-    void reinit(PDLREQ cmd, uint32_t addr, uint32_t size);
+   private:
     void reinit(PDLREQ cmd);
     void push_back(uint8_t *data, uint32_t len);
 
-public:
+   public:
     PDLRequest();
     virtual ~PDLRequest();
 
@@ -110,13 +104,12 @@ public:
     bool onRead();
 };
 
-class PDLResponse final : public CMDResponse
-{
-private:
+class PDLResponse final : public CMDResponse {
+   private:
     uint8_t *_data;
     uint32_t _reallen;
 
-public:
+   public:
     PDLResponse();
     virtual ~PDLResponse();
 
@@ -133,4 +126,4 @@ public:
     void push_back(uint8_t *d, uint32_t len);
 };
 
-#endif //__PDL__
+#endif  //__PDL__

@@ -7,8 +7,7 @@
  */
 #include <iostream>
 
-extern "C"
-{
+extern "C" {
 #include <unistd.h>
 #include <sys/fcntl.h>
 #include <sys/types.h>
@@ -27,35 +26,28 @@ extern "C"
 #include "usbfs.hpp"
 
 USBFS::USBFS(const std::string &devpath, int ifno, int epin, int epout)
-    : USBStream(devpath, USBLINK::USBLINK_USBFS), interface_no(ifno), endpoint_in(epin), endpoint_out(epout)
-{
+    : USBStream(devpath, USBLINK::USBLINK_USBFS), interface_no(ifno), endpoint_in(epin), endpoint_out(epout) {
     usbfd = open(devpath.c_str(), O_RDWR | O_NOCTTY);
-    if (usbfd < 0)
-        return;
+    if (usbfd < 0) return;
 
-    if (usbfs_is_kernel_driver_alive())
-        usbfs_detach_kernel_driver();
+    if (usbfs_is_kernel_driver_alive()) usbfs_detach_kernel_driver();
 
-    if (usbfs_claim_interface())
-    {
+    if (usbfs_claim_interface()) {
         close(usbfd);
         usbfd = -1;
         return;
     }
 }
 
-USBFS::~USBFS()
-{
-    if (usbfd > 0)
-    {
+USBFS::~USBFS() {
+    if (usbfd > 0) {
         usbfs_release_interface();
         close(usbfd);
         usbfd = -1;
     }
 }
 
-void USBFS::sciu2sMessage()
-{
+void USBFS::sciu2sMessage() {
     struct usbdevfs_ctrltransfer control;
 
     // control message that sciu2s.ko will send on tty is open
@@ -70,8 +62,7 @@ void USBFS::sciu2sMessage()
     ioctl(usbfd, USBDEVFS_CONTROL, &control);
 }
 
-void USBFS::setInterface()
-{
+void USBFS::setInterface() {
     struct usbdevfs_ctrltransfer control;
 
     control.bRequestType = 0;
@@ -95,26 +86,20 @@ void USBFS::setInterface()
     ioctl(usbfd, USBDEVFS_CONTROL, &control);
 }
 
-bool USBFS::isOpened()
-{
-    return usbfd > 0;
-}
+bool USBFS::isOpened() { return usbfd > 0; }
 
 /**
  * will send ZLP if len==0
  * NOTICE: USBFS can only send as much as 16K byte in an transfer
  */
 #define MAX_USBFS_BULK_SIZE (16 * 1024)
-bool USBFS::sendSync(uint8_t *data, uint32_t len, uint32_t timeout)
-{
+bool USBFS::sendSync(uint8_t *data, uint32_t len, uint32_t timeout) {
     int ret;
     uint32_t totallen = len;
 
-    if (!isOpened())
-        return false;
+    if (!isOpened()) return false;
 
-    do
-    {
+    do {
         int sz = (len > MAX_USBFS_BULK_SIZE) ? MAX_USBFS_BULK_SIZE : len;
         struct usbdevfs_bulktransfer bulk;
         bulk.ep = endpoint_out;
@@ -123,11 +108,9 @@ bool USBFS::sendSync(uint8_t *data, uint32_t len, uint32_t timeout)
         bulk.timeout = timeout;
 
         ret = ioctl(usbfd, USBDEVFS_BULK, &bulk);
-        if (ret != sz)
-        {
-            std::cerr << __func__ << " bulkout error, send "
-                      << ret << "/" << sz << ", " << (totallen - len) << "/" << totallen
-                      << ", for " << strerror(errno) << std::endl;
+        if (ret != sz) {
+            std::cerr << __func__ << " bulkout error, send " << ret << "/" << sz << ", " << (totallen - len) << "/"
+                      << totallen << ", for " << strerror(errno) << std::endl;
             return false;
         }
 
@@ -138,14 +121,12 @@ bool USBFS::sendSync(uint8_t *data, uint32_t len, uint32_t timeout)
     return true;
 }
 
-bool USBFS::recvSync(uint32_t timeout)
-{
+bool USBFS::recvSync(uint32_t timeout) {
     struct usbdevfs_bulktransfer bulk;
     int n;
     int sz = (max_buf_size > MAX_USBFS_BULK_SIZE) ? MAX_USBFS_BULK_SIZE : max_buf_size;
 
-    if (!isOpened())
-        return false;
+    if (!isOpened()) return false;
 
     bulk.ep = endpoint_in;
     bulk.len = sz;
@@ -153,10 +134,8 @@ bool USBFS::recvSync(uint32_t timeout)
     bulk.timeout = timeout;
 
     n = ioctl(usbfd, USBDEVFS_BULK, &bulk);
-    if (n < 0)
-    {
-        std::cerr << __func__ << " bulkin error, "
-                  << n << "/" << sz << ", for " << strerror(errno) << std::endl;
+    if (n < 0) {
+        std::cerr << __func__ << " bulkin error, " << n << "/" << sz << ", for " << strerror(errno) << std::endl;
         return false;
     }
 
@@ -165,13 +144,11 @@ bool USBFS::recvSync(uint32_t timeout)
     return true;
 }
 
-bool USBFS::usbfs_is_kernel_driver_alive()
-{
+bool USBFS::usbfs_is_kernel_driver_alive() {
     struct usbdevfs_getdriver usbdrv;
 
     usbdrv.interface = interface_no;
-    if (ioctl(usbfd, USBDEVFS_GETDRIVER, &usbdrv) < 0)
-    {
+    if (ioctl(usbfd, USBDEVFS_GETDRIVER, &usbdrv) < 0) {
         if (errno != ENODATA)
             std::cerr << __func__ << " ioctl USBDEVFS_GETDRIVER fail, for " << strerror(errno) << std::endl;
         return false;
@@ -181,8 +158,7 @@ bool USBFS::usbfs_is_kernel_driver_alive()
     return true;
 }
 
-void USBFS::usbfs_detach_kernel_driver()
-{
+void USBFS::usbfs_detach_kernel_driver() {
     int ret;
     struct usbdevfs_ioctl operate;
 
@@ -194,17 +170,8 @@ void USBFS::usbfs_detach_kernel_driver()
     std::cerr << __func__ << " detach kernel driver " << (ret < 0 ? "fail" : "success") << std::endl;
 }
 
-int USBFS::usbfs_claim_interface()
-{
-    return ioctl(usbfd, USBDEVFS_CLAIMINTERFACE, &interface_no);
-}
+int USBFS::usbfs_claim_interface() { return ioctl(usbfd, USBDEVFS_CLAIMINTERFACE, &interface_no); }
 
-int USBFS::usbfs_release_interface()
-{
-    return ioctl(usbfd, USBDEVFS_CLAIMINTERFACE, &interface_no);
-}
+int USBFS::usbfs_release_interface() { return ioctl(usbfd, USBDEVFS_CLAIMINTERFACE, &interface_no); }
 
-int USBFS::usbfs_max_packet_len()
-{
-    return MAX_USBFS_BULK_SIZE;
-}
+int USBFS::usbfs_max_packet_len() { return MAX_USBFS_BULK_SIZE; }

@@ -10,20 +10,18 @@
 #include <iostream>
 #include <string>
 
-extern "C"
-{
+extern "C" {
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
 }
 
-bool is_dir(const std::string &f)
-{
+bool is_dir(const std::string &f) {
     struct stat mstat;
     stat(f.c_str(), &mstat);
 
     return mstat.st_mode & S_IFDIR;
 }
 
-#endif //__COMMON__
+#endif  //__COMMON__

@@ -13,15 +13,14 @@
 
 #include "usbcom.hpp"
 
-class USBFS final : public USBStream
-{
-private:
+class USBFS final : public USBStream {
+   private:
     int usbfd;
     int interface_no;
     uint8_t endpoint_in;
     uint8_t endpoint_out;
 
-public:
+   public:
     USBFS(const std::string &devpath, int ifno, int epin, int epout);
     ~USBFS();
 
@@ -39,4 +38,4 @@ public:
     int usbfs_max_packet_len();
 };
 
-#endif // __USBFS__
+#endif  // __USBFS__
